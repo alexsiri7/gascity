@@ -34,9 +34,8 @@ func sessionProviderName() string {
 	return ""
 }
 
-// newSessionProvider returns a session.Provider based on the session provider
-// name (env var → city.toml → default). This allows txtar tests to exercise
-// session-dependent commands without real tmux.
+// newSessionProviderByName constructs a session.Provider from a provider name.
+// Returns error instead of os.Exit, making it safe for the hot-reload path.
 //
 //   - "fake" → in-memory fake (all ops succeed)
 //   - "fail" → broken fake (all ops return errors)
@@ -44,28 +43,42 @@ func sessionProviderName() string {
 //   - "exec:<script>" → user-supplied script (absolute path or PATH lookup)
 //   - "k8s" → native Kubernetes provider (client-go)
 //   - default → real tmux provider
-func newSessionProvider() session.Provider {
-	v := sessionProviderName()
-	if strings.HasPrefix(v, "exec:") {
-		return sessionexec.NewProvider(strings.TrimPrefix(v, "exec:"))
+func newSessionProviderByName(name string) (session.Provider, error) {
+	if strings.HasPrefix(name, "exec:") {
+		return sessionexec.NewProvider(strings.TrimPrefix(name, "exec:")), nil
 	}
-	switch v {
+	switch name {
 	case "fake":
-		return session.NewFake()
+		return session.NewFake(), nil
 	case "fail":
-		return session.NewFailFake()
+		return session.NewFailFake(), nil
 	case "subprocess":
-		return sessionsubprocess.NewProvider()
+		return sessionsubprocess.NewProvider(), nil
 	case "k8s":
-		p, err := sessionk8s.NewProvider()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "k8s session provider: %v\n", err) //nolint:errcheck // best-effort stderr
-			os.Exit(1)
-		}
-		return p
+		return sessionk8s.NewProvider()
 	default:
-		return sessiontmux.NewProvider()
+		return sessiontmux.NewProvider(), nil
 	}
+}
+
+// newSessionProvider returns a session.Provider based on the session provider
+// name (env var → city.toml → default). This allows txtar tests to exercise
+// session-dependent commands without real tmux. Startup path — exits on error.
+func newSessionProvider() session.Provider {
+	sp, err := newSessionProviderByName(sessionProviderName())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err) //nolint:errcheck // best-effort stderr
+		os.Exit(1)
+	}
+	return sp
+}
+
+// displayProviderName returns a human-readable provider name for logging.
+func displayProviderName(name string) string {
+	if name == "" {
+		return "tmux (default)"
+	}
+	return name
 }
 
 // beadsProvider returns the bead store provider name.

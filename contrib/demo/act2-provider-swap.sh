@@ -6,9 +6,9 @@
 # on local tmux. Now we show the same topology in Docker containers —
 # same beads, same gc commands, different provider config.
 #
-# The presenter uncomments a [session] block in city.toml, saves, then
-# Ctrl-C's the daemon in the controller pane. The auto-restart loop
-# picks up the new config and agents move into Docker containers.
+# The presenter uncomments a [session] block in city.toml, saves, and
+# the controller hot-reloads the session provider — agents gracefully
+# stop on tmux and start in Docker containers. No restart needed.
 # Beads, events, and mail share the filesystem — no sync needed.
 #
 # All agents are bash scripts — no Claude API calls.
@@ -120,8 +120,8 @@ cat > "$DEMO_CITY/city.toml" <<EOF
 # ── PROVIDER SWAP DEMO ──────────────────────────────────────────────────
 #
 # Current: Local providers (tmux sessions, bd beads, file events).
-# To swap: Uncomment the [session] block below. Save. Ctrl-C the daemon.
-# It auto-restarts with the Docker provider — agents move into containers.
+# To swap: Uncomment the [session] block below and save.
+# The controller hot-reloads — agents move into Docker containers.
 # ─────────────────────────────────────────────────────────────────────────
 
 [workspace]
@@ -202,11 +202,11 @@ tmux send-keys -t "$PANE_STATUS" \
 tmux send-keys -t "$PANE_EVENTS" \
     "cd $DEMO_CITY && gc events --follow" C-m
 
-# Pane bottom-right: Controller with auto-restart loop.
-# Session provider is created once at daemon startup, so: edit config →
-# Ctrl-C the controller → the loop restarts with the new [session] provider.
+# Pane bottom-right: Controller (foreground).
+# The controller hot-reloads the session provider on config change —
+# no Ctrl-C or restart needed. Edit config, save, watch agents move.
 tmux send-keys -t "$PANE_CTRL" \
-    "cd $DEMO_CITY && while true; do gc start --foreground; echo 'Restarting...'; sleep 1; done" C-m
+    "cd $DEMO_CITY && gc start --foreground" C-m
 
 # Wait for gc start to bring up the dolt server + init beads.
 step "Waiting for dolt server..."
@@ -258,8 +258,8 @@ echo "           Status pane shows tmux-based agents."
 echo "           Docker pane is empty — no containers yet."
 echo ""
 echo "  Phase 2: In the editor, uncomment the [session] block (2 lines)."
-echo "           Save. In the Controller pane, Ctrl-C then it auto-restarts."
-echo "           The new config picks up the Docker provider."
+echo "           Save. The controller hot-reloads — no Ctrl-C needed."
+echo "           Watch agents stop on tmux and start in Docker containers."
 echo "           Check containers: docker ps --filter label=gc.managed=true"
 echo ""
 echo "  Same topology. Same beads. Different infrastructure."
@@ -286,6 +286,6 @@ narrate "Act 2 Complete" --sub "Same topology, tmux → Docker — one config li
 
 echo "  Local providers:  tmux sessions, bd beads, file events"
 echo "  Docker providers: containers with mounted work_dir, same beads"
-echo "  The change:       uncomment [session] block, gc stop, auto-restart"
+echo "  The change:       uncomment [session] block, save — hot-reloaded"
 echo ""
 pause "Press Enter to continue to next act..."

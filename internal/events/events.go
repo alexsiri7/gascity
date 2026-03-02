@@ -36,6 +36,7 @@ const (
 	AutomationFired     = "automation.fired"
 	AutomationCompleted = "automation.completed"
 	AutomationFailed    = "automation.failed"
+	ProviderSwapped     = "provider.swapped"
 )
 
 // Event is a single recorded occurrence in the system.

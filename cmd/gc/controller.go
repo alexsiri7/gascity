@@ -263,6 +263,13 @@ func controllerLoop(
 		defer cleanup()
 	}
 
+	// Track effective provider name for hot-reload detection.
+	// GC_SESSION env var overrides config — if set, config changes won't trigger a swap.
+	lastProviderName := cfg.Session.Provider
+	if v := os.Getenv("GC_SESSION"); v != "" {
+		lastProviderName = v
+	}
+
 	// Initial reconciliation.
 	agents := buildFn(cfg)
 	doReconcileAgents(agents, sp, rops, dops, ct, it, rec, prefix, poolSessions, suspendedNames, stdout, stderr)
@@ -282,6 +289,36 @@ func controllerLoop(
 					telemetry.RecordConfigReload(ctx, "", err)
 				} else {
 					cfg = result.Cfg
+					// Detect session provider change.
+					newProviderName := cfg.Session.Provider
+					if v := os.Getenv("GC_SESSION"); v != "" {
+						newProviderName = v // env always wins — no swap when env is set
+					}
+					if newProviderName != lastProviderName {
+						// Stop all agents on the current provider.
+						if running, lErr := rops.listRunning(prefix); lErr == nil && len(running) > 0 {
+							fmt.Fprintf(stdout, "Provider changed (%s → %s), stopping %d agent(s)...\n", //nolint:errcheck // best-effort stdout
+								displayProviderName(lastProviderName), displayProviderName(newProviderName), len(running))
+							gracefulStopAll(running, sp, cfg.Daemon.ShutdownTimeoutDuration(), rec, stdout, stderr)
+						}
+						// Construct new provider.
+						newSp, spErr := newSessionProviderByName(newProviderName)
+						if spErr != nil {
+							fmt.Fprintf(stderr, "gc start: new session provider %q: %v (keeping old provider)\n", //nolint:errcheck // best-effort stderr
+								newProviderName, spErr)
+						} else {
+							sp = newSp
+							rops = newReconcileOps(sp)
+							dops = newDrainOps(sp)
+							rec.Record(events.Event{
+								Type:    events.ProviderSwapped,
+								Actor:   "gc",
+								Message: fmt.Sprintf("%s → %s", displayProviderName(lastProviderName), displayProviderName(newProviderName)),
+							})
+							fmt.Fprintf(stdout, "Session provider swapped to %s.\n", displayProviderName(newProviderName)) //nolint:errcheck // best-effort stdout
+							lastProviderName = newProviderName
+						}
+					}
 					// Re-materialize and prepend system formulas (not included in LoadWithIncludes).
 					sysDir, _ := MaterializeSystemFormulas(systemFormulasFS, "system_formulas", cityRoot)
 					if sysDir != "" {
