@@ -219,7 +219,12 @@ func (p *Provider) CopyTo(name, src, relDst string) error {
 // Attach connects the user's terminal to the named tmux session.
 // This hands stdin/stdout/stderr to tmux and blocks until detach.
 func (p *Provider) Attach(name string) error {
-	cmd := exec.Command("tmux", "-u", "attach-session", "-t", name)
+	args := []string{"-u"}
+	if p.cfg.SocketName != "" {
+		args = append(args, "-L", p.cfg.SocketName)
+	}
+	args = append(args, "attach-session", "-t", name)
+	cmd := exec.Command("tmux", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -300,6 +305,11 @@ func (o *tmuxStartOps) runSetupCommand(cmd string, env map[string]string, timeou
 	c.Env = os.Environ()
 	for k, v := range env {
 		c.Env = append(c.Env, k+"="+v)
+	}
+	// Expose the tmux socket name so session_setup scripts can use
+	// "tmux -L $GC_TMUX_SOCKET" to reach the correct server.
+	if o.tm.cfg.SocketName != "" {
+		c.Env = append(c.Env, "GC_TMUX_SOCKET="+o.tm.cfg.SocketName)
 	}
 	return c.Run()
 }

@@ -379,6 +379,11 @@ type SessionConfig struct {
 	// DisplayMs is the default display duration in milliseconds for status messages.
 	// Defaults to 5000.
 	DisplayMs *int `toml:"display_ms,omitempty" jsonschema:"default=5000"`
+	// Socket specifies the tmux socket name for per-city isolation.
+	// When set, all tmux commands use "tmux -L <socket>" to connect to
+	// a dedicated server. Empty means use the default tmux server.
+	// Typical usage: set to the city name (e.g., "bright-lights").
+	Socket string `toml:"socket,omitempty"`
 }
 
 // SetupTimeoutDuration returns the setup timeout as a time.Duration.

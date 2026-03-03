@@ -40,6 +40,10 @@ type Config struct {
 	NudgeLockTimeout   time.Duration
 	DebounceMs         int
 	DisplayMs          int
+	// SocketName specifies the tmux socket name for per-city isolation.
+	// When set, all tmux commands use "tmux -L <socket>" to connect to
+	// a dedicated server. Empty means use the default tmux server.
+	SocketName string
 }
 
 // DefaultConfig returns a Config with the original hardcoded values.
@@ -117,40 +121,58 @@ func validateSessionName(name string) error {
 	return nil
 }
 
+// executor runs tmux subprocess commands.
+// Abstracted for unit testing of argument construction (socket flags, etc.).
+type executor interface {
+	execute(args []string) (string, error)
+}
+
+// realExecutor runs actual tmux subprocesses.
+type realExecutor struct{}
+
+func (realExecutor) execute(args []string) (string, error) {
+	cmd := exec.Command("tmux", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return "", wrapError(err, stderr.String(), args)
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
 // Tmux wraps tmux operations.
-type Tmux struct{ cfg Config }
+type Tmux struct {
+	cfg  Config
+	exec executor
+}
 
 // NewTmux creates a new Tmux wrapper with default configuration.
 func NewTmux() *Tmux {
-	return &Tmux{cfg: DefaultConfig()}
+	return &Tmux{cfg: DefaultConfig(), exec: realExecutor{}}
 }
 
 // NewTmuxWithConfig creates a new Tmux wrapper with the given configuration.
 func NewTmuxWithConfig(cfg Config) *Tmux {
-	return &Tmux{cfg: cfg}
+	return &Tmux{cfg: cfg, exec: realExecutor{}}
 }
 
 // run executes a tmux command and returns stdout.
 // All commands include -u flag for UTF-8 support regardless of locale settings.
+// When SocketName is configured, -L <socket> is injected after -u.
 // See: https://github.com/steveyegge/gastown/issues/1219
 func (t *Tmux) run(args ...string) (string, error) {
-	// Prepend -u flag for UTF-8 mode (PATCH-004)
-	allArgs := append([]string{"-u"}, args...)
-	cmd := exec.Command("tmux", allArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	if err != nil {
-		return "", t.wrapError(err, stderr.String(), args)
+	allArgs := []string{"-u"}
+	if t.cfg.SocketName != "" {
+		allArgs = append(allArgs, "-L", t.cfg.SocketName)
 	}
-
-	return strings.TrimSpace(stdout.String()), nil
+	allArgs = append(allArgs, args...)
+	return t.exec.execute(allArgs)
 }
 
 // wrapError wraps tmux errors with context.
-func (t *Tmux) wrapError(err error, stderr string, args []string) error {
+func wrapError(err error, stderr string, args []string) error {
 	stderr = strings.TrimSpace(stderr)
 
 	// Detect specific error types

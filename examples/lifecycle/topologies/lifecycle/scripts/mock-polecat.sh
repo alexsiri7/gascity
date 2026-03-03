@@ -121,7 +121,7 @@ cat > "$FILENAME" <<EOF
 Implementation of $BEAD_TITLE.
 EOF
 
-sleep 2  # Simulate work time
+sleep "${GC_POLECAT_WORK_DELAY:-30}"  # Simulate work time (visible speedup when EKS parallelizes)
 
 git add "$FILENAME"
 git commit -m "feat: $BEAD_TITLE ($BEAD_ID)" 2>/dev/null || true
@@ -155,3 +155,12 @@ echo "[$AGENT_SHORT] Handed off to refinery. Done."
 # (the container entrypoint). pkill -f would also match PID 1 itself
 # since its cmdline contains "sleep infinity".
 kill $(pgrep -P 1 -x sleep 2>/dev/null) 2>/dev/null || true
+
+# Kill our own tmux session (if running inside one). Without this, the
+# session lingers as a zombie — remain-on-exit keeps the pane alive and
+# the reconciler sees it as "running" because no process_names are set.
+# The reconciler will re-create the session on the next patrol if work
+# remains in the pool.
+if [ -n "${TMUX:-}" ]; then
+    tmux kill-session -t "$(tmux display-message -p '#{session_name}')" 2>/dev/null || true
+fi

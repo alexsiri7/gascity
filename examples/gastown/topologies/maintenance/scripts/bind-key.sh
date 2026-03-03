@@ -8,6 +8,9 @@
 # original binding in non-GC sessions.
 set -e
 
+# Socket-aware tmux command (uses GC_TMUX_SOCKET when set).
+gcmux() { tmux ${GC_TMUX_SOCKET:+-L "$GC_TMUX_SOCKET"} "$@"; }
+
 key="$1"
 gc_command="$2"
 guard_pattern="${3:-^gc-}"
@@ -15,7 +18,7 @@ guard_pattern="${3:-^gc-}"
 [ -z "$key" ] || [ -z "$gc_command" ] && exit 1
 
 # Check if already a GC binding (idempotent).
-existing=$(tmux list-keys -T prefix "$key" 2>/dev/null || true)
+existing=$(gcmux list-keys -T prefix "$key" 2>/dev/null || true)
 if printf '%s' "$existing" | grep -q 'if-shell' && printf '%s' "$existing" | grep -q 'gc '; then
     exit 0
 fi
@@ -53,4 +56,4 @@ fi
 
 # Install the if-shell binding.
 guard="echo '#{session_name}' | grep -Eq '${guard_pattern}'"
-tmux bind-key -T prefix "$key" if-shell "$guard" "$gc_command" "$fallback"
+gcmux bind-key -T prefix "$key" if-shell "$guard" "$gc_command" "$fallback"

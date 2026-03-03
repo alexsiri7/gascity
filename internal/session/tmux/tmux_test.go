@@ -196,8 +196,6 @@ func TestGetSessionInfo(t *testing.T) {
 }
 
 func TestWrapError(t *testing.T) {
-	tm := NewTmux()
-
 	tests := []struct {
 		stderr string
 		want   error
@@ -211,7 +209,7 @@ func TestWrapError(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		err := tm.wrapError(nil, tt.stderr, []string{"test"})
+		err := wrapError(nil, tt.stderr, []string{"test"})
 		if !errors.Is(err, tt.want) {
 			t.Errorf("wrapError(%q) = %v, want %v", tt.stderr, err, tt.want)
 		}

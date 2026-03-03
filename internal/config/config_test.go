@@ -2709,6 +2709,33 @@ func TestSessionDisplayMsCustom(t *testing.T) {
 	}
 }
 
+func TestSessionSocketDefault(t *testing.T) {
+	s := SessionConfig{}
+	if s.Socket != "" {
+		t.Errorf("Socket = %q, want empty string", s.Socket)
+	}
+}
+
+func TestSessionSocketParsed(t *testing.T) {
+	toml := `
+[workspace]
+name = "test"
+
+[session]
+socket = "bright-lights"
+
+[[agents]]
+name = "a"
+`
+	cfg, err := Parse([]byte(toml))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Session.Socket != "bright-lights" {
+		t.Errorf("Session.Socket = %q, want %q", cfg.Session.Socket, "bright-lights")
+	}
+}
+
 func TestParseSessionTimeouts(t *testing.T) {
 	toml := `
 [workspace]

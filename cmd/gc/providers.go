@@ -46,6 +46,7 @@ func tmuxConfigFromSession(sc config.SessionConfig) sessiontmux.Config {
 		NudgeLockTimeout:   sc.NudgeLockTimeoutDuration(),
 		DebounceMs:         sc.DebounceMsOrDefault(),
 		DisplayMs:          sc.DisplayMsOrDefault(),
+		SocketName:         sc.Socket,
 	}
 }
 

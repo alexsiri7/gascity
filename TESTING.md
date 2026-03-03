@@ -339,6 +339,25 @@ Testscript tests call `gc foo` which routes through `cmdFoo()` →
 | CLI output format, exit codes | `exec gc foo` in txtar |
 | That the factory wiring is correct | `exec gc foo` in txtar with `GC_SESSION=fake` |
 
+## The executor interface pattern
+
+When a function's **argument construction** is the behavior under test
+(flag injection, command building), extract the subprocess call behind
+an executor interface. This separates "what arguments are built" from
+"running a real binary."
+
+**When to use:** Code that constructs `exec.Command` arguments
+conditionally (socket flags, env vars, flag lists). The test verifies
+the args array, not the subprocess outcome.
+
+**When NOT to use:** When the logic under test is the orchestration
+sequence (which methods are called in what order). Use the `startOps`
+interface pattern instead.
+
+**Example:** `tmux.executor` — `fakeExecutor` captures the `[]string`
+args passed to each tmux command. Tests verify socket flags, UTF-8
+flags, and argument ordering without a tmux binary.
+
 ## Env var fakes for testscript
 
 Testscript needs fakes too, but can't inject Go objects. The CLI has
