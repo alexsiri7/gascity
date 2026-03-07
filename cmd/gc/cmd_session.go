@@ -59,7 +59,7 @@ city.toml. By default, attaches the terminal after creation.`,
 		Example: `  gc session new helper
   gc session new helper --title "debugging auth"
   gc session new helper --no-attach`,
-		Args: cobra.ArbitraryArgs,
+		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if cmdSessionNew(args, title, noAttach, stdout, stderr) != 0 {
 				return errExit
@@ -74,10 +74,6 @@ city.toml. By default, attaches the terminal after creation.`,
 
 // cmdSessionNew is the CLI entry point for "gc session new".
 func cmdSessionNew(args []string, title string, noAttach bool, stdout, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "gc session new: missing template name") //nolint:errcheck // best-effort stderr
-		return 1
-	}
 	templateName := args[0]
 
 	cityPath, err := resolveCity()
@@ -231,7 +227,7 @@ func newSessionAttachCmd(stdout, stderr io.Writer) *cobra.Command {
 If the session is active with a live tmux session, reattaches.
 If the session is suspended or the tmux session died, restarts
 with a fresh conversation (Phase 1 — provider resume in Phase 2).`,
-		Args: cobra.ArbitraryArgs,
+		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if cmdSessionAttach(args, stdout, stderr) != 0 {
 				return errExit
@@ -243,10 +239,6 @@ with a fresh conversation (Phase 1 — provider resume in Phase 2).`,
 
 // cmdSessionAttach is the CLI entry point for "gc session attach".
 func cmdSessionAttach(args []string, stdout, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "gc session attach: missing session ID") //nolint:errcheck // best-effort stderr
-		return 1
-	}
 	sessionID := args[0]
 
 	cityPath, err := resolveCity()
@@ -292,12 +284,20 @@ func buildResumeCommand(cfg *config.City, info chatsession.Info) (string, sessio
 	// Find the template agent to resolve provider.
 	found, ok := resolveAgentIdentity(cfg, info.Template, "")
 	if !ok {
-		// Template may have been removed from config. Use stored provider.
-		return info.Provider, session.Config{WorkDir: info.WorkDir}
+		// Template removed from config. Use stored command (or provider name as last resort).
+		cmd := info.Command
+		if cmd == "" {
+			cmd = info.Provider
+		}
+		return cmd, session.Config{WorkDir: info.WorkDir}
 	}
 	resolved, err := config.ResolveProvider(&found, &cfg.Workspace, cfg.Providers, exec.LookPath)
 	if err != nil {
-		return info.Provider, session.Config{WorkDir: info.WorkDir}
+		cmd := info.Command
+		if cmd == "" {
+			cmd = info.Provider
+		}
+		return cmd, session.Config{WorkDir: info.WorkDir}
 	}
 	hints := session.Config{
 		WorkDir:                info.WorkDir,
@@ -305,6 +305,7 @@ func buildResumeCommand(cfg *config.City, info chatsession.Info) (string, sessio
 		ReadyDelayMs:           resolved.ReadyDelayMs,
 		ProcessNames:           resolved.ProcessNames,
 		EmitsPermissionWarning: resolved.EmitsPermissionWarning,
+		Env:                    resolved.Env,
 	}
 	return resolved.CommandString(), hints
 }
@@ -316,7 +317,7 @@ func newSessionSuspendCmd(stdout, stderr io.Writer) *cobra.Command {
 		Short: "Suspend a session (save state, free resources)",
 		Long: `Suspend an active session by stopping its runtime process.
 The session bead persists and can be resumed later.`,
-		Args: cobra.ArbitraryArgs,
+		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if cmdSessionSuspend(args, stdout, stderr) != 0 {
 				return errExit
@@ -328,10 +329,6 @@ The session bead persists and can be resumed later.`,
 
 // cmdSessionSuspend is the CLI entry point for "gc session suspend".
 func cmdSessionSuspend(args []string, stdout, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "gc session suspend: missing session ID") //nolint:errcheck // best-effort stderr
-		return 1
-	}
 	sessionID := args[0]
 
 	store, code := openCityStore(stderr, "gc session suspend")
@@ -357,7 +354,7 @@ func newSessionCloseCmd(stdout, stderr io.Writer) *cobra.Command {
 		Use:   "close <session-id>",
 		Short: "Close a session permanently",
 		Long:  `End a conversation. Stops the runtime if active and closes the bead.`,
-		Args:  cobra.ArbitraryArgs,
+		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if cmdSessionClose(args, stdout, stderr) != 0 {
 				return errExit
@@ -369,10 +366,6 @@ func newSessionCloseCmd(stdout, stderr io.Writer) *cobra.Command {
 
 // cmdSessionClose is the CLI entry point for "gc session close".
 func cmdSessionClose(args []string, stdout, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "gc session close: missing session ID") //nolint:errcheck // best-effort stderr
-		return 1
-	}
 	sessionID := args[0]
 
 	store, code := openCityStore(stderr, "gc session close")
@@ -398,7 +391,7 @@ func newSessionPeekCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "peek <session-id>",
 		Short: "View session output without attaching",
-		Args:  cobra.ArbitraryArgs,
+		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if cmdSessionPeek(args, lines, stdout, stderr) != 0 {
 				return errExit
@@ -412,10 +405,6 @@ func newSessionPeekCmd(stdout, stderr io.Writer) *cobra.Command {
 
 // cmdSessionPeek is the CLI entry point for "gc session peek".
 func cmdSessionPeek(args []string, lines int, stdout, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "gc session peek: missing session ID") //nolint:errcheck // best-effort stderr
-		return 1
-	}
 	sessionID := args[0]
 
 	store, code := openCityStore(stderr, "gc session peek")

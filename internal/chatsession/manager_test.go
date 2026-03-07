@@ -306,6 +306,107 @@ func TestSessionNameFor(t *testing.T) {
 	}
 }
 
+func TestListExcludesClosedFromActiveFilter(t *testing.T) {
+	store := beads.NewMemStore()
+	sp := session.NewFake()
+	mgr := NewManager(store, sp)
+
+	info, err := mgr.Create(context.Background(), "helper", "", "claude", "/tmp", "claude", nil, session.Config{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := mgr.Close(info.ID); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Filtering by "active" should NOT return the closed session.
+	active, err := mgr.List("active", "")
+	if err != nil {
+		t.Fatalf("List active: %v", err)
+	}
+	if len(active) != 0 {
+		t.Errorf("List active returned %d, want 0 (closed session leaked)", len(active))
+	}
+}
+
+func TestAttachActiveReattach(t *testing.T) {
+	store := beads.NewMemStore()
+	sp := session.NewFake()
+	mgr := NewManager(store, sp)
+
+	info, err := mgr.Create(context.Background(), "helper", "", "claude", "/tmp", "claude", nil, session.Config{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Attach to an active session — should reattach without restarting.
+	err = mgr.Attach(context.Background(), info.ID, "claude --resume", session.Config{})
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	// Verify state is still active.
+	got, err := mgr.Get(info.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.State != StateActive {
+		t.Errorf("State = %q, want %q", got.State, StateActive)
+	}
+}
+
+func TestSuspendCrashedSession(t *testing.T) {
+	store := beads.NewMemStore()
+	sp := session.NewFake()
+	mgr := NewManager(store, sp)
+
+	info, err := mgr.Create(context.Background(), "helper", "", "claude", "/tmp", "claude", nil, session.Config{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Simulate crash by stopping the runtime behind the manager's back.
+	_ = sp.Stop(info.SessionName)
+
+	// Suspend should succeed even though runtime is dead.
+	if err := mgr.Suspend(info.ID); err != nil {
+		t.Fatalf("Suspend crashed session: %v", err)
+	}
+
+	got, err := mgr.Get(info.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.State != StateSuspended {
+		t.Errorf("State = %q, want %q", got.State, StateSuspended)
+	}
+}
+
+func TestCreateStoresCommand(t *testing.T) {
+	store := beads.NewMemStore()
+	sp := session.NewFake()
+	mgr := NewManager(store, sp)
+
+	info, err := mgr.Create(context.Background(), "helper", "", "claude --dangerously-skip-permissions", "/tmp", "claude", nil, session.Config{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Verify the command is stored in the bead metadata.
+	b, err := store.Get(info.ID)
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if b.Metadata["command"] != "claude --dangerously-skip-permissions" {
+		t.Errorf("stored command = %q, want %q", b.Metadata["command"], "claude --dangerously-skip-permissions")
+	}
+
+	// Verify it's accessible via Info.
+	if info.Command != "claude --dangerously-skip-permissions" {
+		t.Errorf("Info.Command = %q, want %q", info.Command, "claude --dangerously-skip-permissions")
+	}
+}
+
 func TestCreateFailsCleanup(t *testing.T) {
 	store := beads.NewMemStore()
 	sp := session.NewFailFake() // all operations fail

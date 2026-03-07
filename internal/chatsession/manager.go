@@ -40,6 +40,7 @@ type Info struct {
 	State       State
 	Title       string
 	Provider    string
+	Command     string // resolved command stored at creation
 	WorkDir     string
 	SessionName string // tmux session name
 	CreatedAt   time.Time
@@ -76,6 +77,7 @@ func (m *Manager) Create(ctx context.Context, template, title, command, workDir,
 			"state":    string(StateActive),
 			"provider": provider,
 			"work_dir": workDir,
+			"command":  command,
 		},
 	})
 	if err != nil {
@@ -87,6 +89,7 @@ func (m *Manager) Create(ctx context.Context, template, title, command, workDir,
 
 	// Store the session name in metadata.
 	if err := m.store.SetMetadata(b.ID, "session_name", sessName); err != nil {
+		_ = m.store.Close(b.ID)
 		return Info{}, fmt.Errorf("storing session name: %w", err)
 	}
 
@@ -145,6 +148,7 @@ func (m *Manager) Attach(ctx context.Context, id string, resumeCommand string, h
 			return fmt.Errorf("resuming session: %w", err)
 		}
 		if err := m.store.SetMetadata(id, "state", string(StateActive)); err != nil {
+			_ = m.sp.Stop(sessName) // clean up orphan runtime
 			return fmt.Errorf("updating session state: %w", err)
 		}
 	}
@@ -173,9 +177,11 @@ func (m *Manager) Suspend(id string) error {
 		sessName = sessionNameFor(id)
 	}
 
-	// Kill the runtime session.
-	if err := m.sp.Stop(sessName); err != nil {
-		return fmt.Errorf("stopping runtime session: %w", err)
+	// Kill the runtime session (skip if already dead).
+	if m.sp.IsRunning(sessName) {
+		if err := m.sp.Stop(sessName); err != nil {
+			return fmt.Errorf("stopping runtime session: %w", err)
+		}
 	}
 
 	// Update state.
@@ -241,8 +247,16 @@ func (m *Manager) List(stateFilter string, templateFilter string) ([]Info, error
 		if stateFilter != "" && stateFilter != "all" {
 			match := false
 			for _, s := range strings.Split(stateFilter, ",") {
-				if s == string(state) || (s == "open" && b.Status == "open") || (s == "closed" && b.Status == "closed") {
+				switch {
+				case s == "closed" && b.Status == "closed":
 					match = true
+				case s == "open" && b.Status == "open":
+					match = true
+				case b.Status != "closed" && s == string(state):
+					// Only match metadata state for non-closed beads.
+					match = true
+				}
+				if match {
 					break
 				}
 			}
@@ -303,6 +317,7 @@ func (m *Manager) infoFromBead(b beads.Bead) Info {
 		State:       state,
 		Title:       b.Title,
 		Provider:    b.Metadata["provider"],
+		Command:     b.Metadata["command"],
 		WorkDir:     b.Metadata["work_dir"],
 		SessionName: sessName,
 		CreatedAt:   b.CreatedAt,
