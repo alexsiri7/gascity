@@ -84,7 +84,7 @@ func (f *Fake) Start(_ context.Context, name string, cfg Config) error {
 		return err
 	}
 	if _, exists := f.sessions[name]; exists {
-		return fmt.Errorf("session %q already exists", name)
+		return fmt.Errorf("%w: session %q", ErrSessionExists, name)
 	}
 	f.sessions[name] = cfg
 	return nil
