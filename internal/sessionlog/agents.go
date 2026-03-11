@@ -3,11 +3,15 @@ package sessionlog
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// ErrAgentNotFound is returned when a subagent file does not exist.
+var ErrAgentNotFound = errors.New("agent not found")
 
 // AgentMapping links a subagent to the parent Task tool_use that spawned it.
 type AgentMapping struct {
@@ -76,19 +80,41 @@ func FindAgentMappings(parentLogPath string) ([]AgentMapping, error) {
 	return mappings, nil
 }
 
+// ValidateAgentID checks that an agent ID is safe for use in filesystem
+// paths. It rejects IDs containing path separators or dot-dot sequences.
+func ValidateAgentID(agentID string) error {
+	if agentID == "" {
+		return fmt.Errorf("empty agent ID")
+	}
+	if strings.ContainsAny(agentID, "/\\") || strings.Contains(agentID, "..") {
+		return fmt.Errorf("invalid agent ID %q: must not contain path separators or '..'", agentID)
+	}
+	return nil
+}
+
 // ReadAgentSession reads a subagent JSONL file and returns its transcript
 // and inferred status. Uses the same DAG resolution as parent sessions.
+// Returns ErrAgentNotFound if the agent file does not exist.
 func ReadAgentSession(parentLogPath, agentID string) (*AgentSession, error) {
+	if err := ValidateAgentID(agentID); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrAgentNotFound, err)
+	}
+
 	dir := filepath.Dir(parentLogPath)
 	agentPath := filepath.Join(dir, "agent-"+agentID+".jsonl")
 
+	// Belt-and-suspenders: verify resolved path stays in the expected directory.
+	if filepath.Dir(agentPath) != dir {
+		return nil, fmt.Errorf("%w: path escapes session directory", ErrAgentNotFound)
+	}
+
 	if _, err := os.Stat(agentPath); err != nil {
-		return nil, fmt.Errorf("agent file not found: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrAgentNotFound, err)
 	}
 
 	entries, err := parseFile(agentPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading agent transcript: %w", err)
 	}
 
 	dag := BuildDag(entries)

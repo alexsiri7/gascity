@@ -176,6 +176,69 @@ func TestReadAgentSession_NotFound(t *testing.T) {
 	}
 }
 
+func TestValidateAgentID(t *testing.T) {
+	tests := []struct {
+		id      string
+		wantErr bool
+	}{
+		{"abc123", false},
+		{"uuid-with-dashes", false},
+		{"", true},
+		{"../etc/passwd", true},
+		{"foo/bar", true},
+		{"foo\\bar", true},
+		{"..%2f..%2fetc", true}, // contains ".." literal
+		{"valid-agent-id", false},
+	}
+	for _, tt := range tests {
+		err := ValidateAgentID(tt.id)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("ValidateAgentID(%q) err=%v, wantErr=%v", tt.id, err, tt.wantErr)
+		}
+	}
+}
+
+func TestReadAgentSession_PathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	parentPath := filepath.Join(dir, "session-abc.jsonl")
+	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+
+	// Create a file outside the session directory that could be targeted.
+	outsideDir := t.TempDir()
+	writeTestFile(t, filepath.Join(outsideDir, "agent-secret.jsonl"),
+		`{"uuid":"s1","type":"system"}`+"\n")
+
+	traversalIDs := []string{
+		"../../../etc/passwd",
+		"foo/bar",
+		"..\\windows\\system32",
+	}
+	for _, id := range traversalIDs {
+		_, err := ReadAgentSession(parentPath, id)
+		if err == nil {
+			t.Errorf("ReadAgentSession with traversal ID %q should fail", id)
+		}
+	}
+}
+
+func TestReadAgentSession_CorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	parentPath := filepath.Join(dir, "session-abc.jsonl")
+	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+
+	// Write a corrupt agent file — parseFile skips malformed lines,
+	// so this produces an empty transcript with "pending" status.
+	writeTestFile(t, filepath.Join(dir, "agent-corrupt.jsonl"), "not json at all\n")
+
+	sess, err := ReadAgentSession(parentPath, "corrupt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sess.Status != AgentStatusPending {
+		t.Errorf("status = %q, want %q (all lines were unparseable)", sess.Status, AgentStatusPending)
+	}
+}
+
 func TestInferAgentStatus(t *testing.T) {
 	tests := []struct {
 		name     string

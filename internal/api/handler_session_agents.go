@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/gastownhall/gascity/internal/session"
@@ -70,6 +71,11 @@ func (s *Server) handleSessionAgentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := sessionlog.ValidateAgentID(agentID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid", err.Error())
+		return
+	}
+
 	mgr := s.sessionManager(store)
 	logPath, err := mgr.TranscriptPath(id, s.sessionLogPaths())
 	if err != nil {
@@ -83,7 +89,11 @@ func (s *Server) handleSessionAgentGet(w http.ResponseWriter, r *http.Request) {
 
 	agentSession, err := sessionlog.ReadAgentSession(logPath, agentID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "agent not found: "+err.Error())
+		if errors.Is(err, sessionlog.ErrAgentNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		}
 		return
 	}
 
