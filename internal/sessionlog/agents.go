@@ -36,14 +36,25 @@ type AgentSession struct {
 	Status   AgentStatus `json:"status"`
 }
 
-// FindAgentFiles returns all agent-*.jsonl files in the same directory
-// as the parent session JSONL. Returns an error if the directory cannot
-// be read. Returns an empty slice if no agent files are found.
+// agentDir returns the subagents directory for a session log path.
+// Claude Code stores subagent files in {slug}/{session-uuid}/subagents/.
+func agentDir(parentLogPath string) string {
+	base := filepath.Base(parentLogPath)
+	sessionID := strings.TrimSuffix(base, filepath.Ext(base))
+	return filepath.Join(filepath.Dir(parentLogPath), sessionID, "subagents")
+}
+
+// FindAgentFiles returns all agent-*.jsonl files in the subagents
+// directory for the given parent session. Returns an empty slice if the
+// subagents directory does not exist or contains no agent files.
 func FindAgentFiles(parentLogPath string) ([]string, error) {
-	dir := filepath.Dir(parentLogPath)
+	dir := agentDir(parentLogPath)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("reading session directory: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil // no subagents directory — not an error
+		}
+		return nil, fmt.Errorf("reading subagents directory: %w", err)
 	}
 	var paths []string
 	for _, e := range entries {
@@ -104,16 +115,14 @@ func ReadAgentSession(parentLogPath, agentID string) (*AgentSession, error) {
 		return nil, fmt.Errorf("%w: %w", ErrAgentNotFound, err)
 	}
 
-	dir := filepath.Dir(parentLogPath)
+	dir := agentDir(parentLogPath)
 	agentPath := filepath.Join(dir, "agent-"+agentID+".jsonl")
 
-	// Belt-and-suspenders: verify resolved path stays in the expected directory.
-	if filepath.Dir(agentPath) != dir {
-		return nil, fmt.Errorf("%w: path escapes session directory", ErrAgentNotFound)
-	}
-
 	if _, err := os.Stat(agentPath); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrAgentNotFound, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %w", ErrAgentNotFound, err)
+		}
+		return nil, fmt.Errorf("checking agent file: %w", err)
 	}
 
 	entries, err := parseFile(agentPath)

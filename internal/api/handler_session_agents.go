@@ -90,7 +90,7 @@ func (s *Server) handleSessionAgentGet(w http.ResponseWriter, r *http.Request) {
 	agentSession, err := sessionlog.ReadAgentSession(logPath, agentID)
 	if err != nil {
 		if errors.Is(err, sessionlog.ErrAgentNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", err.Error())
+			writeError(w, http.StatusNotFound, "not_found", "agent not found")
 		} else {
 			writeError(w, http.StatusInternalServerError, "internal", "failed to read agent transcript")
 		}

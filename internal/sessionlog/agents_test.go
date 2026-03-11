@@ -1,6 +1,7 @@
 package sessionlog
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,16 +10,44 @@ import (
 // writeTestFile is a test helper that writes a file and fails the test on error.
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdirAll(%s): %v", filepath.Dir(path), err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writeTestFile(%s): %v", path, err)
 	}
 }
 
+// makeSessionDir creates the standard Claude session layout:
+//
+//	{dir}/{sessionID}.jsonl         (parent session)
+//	{dir}/{sessionID}/subagents/    (agent files go here)
+//
+// Returns the parent session path and the subagents directory path.
+func makeSessionDir(t *testing.T, dir, sessionID string) (parentPath, subagentsDir string) {
+	t.Helper()
+	parentPath = filepath.Join(dir, sessionID+".jsonl")
+	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+	subagentsDir = filepath.Join(dir, sessionID, "subagents")
+	if err := os.MkdirAll(subagentsDir, 0o755); err != nil {
+		t.Fatalf("mkdirAll subagents: %v", err)
+	}
+	return parentPath, subagentsDir
+}
+
+func TestAgentDir(t *testing.T) {
+	got := agentDir("/home/user/.claude/projects/slug/abc-123.jsonl")
+	want := "/home/user/.claude/projects/slug/abc-123/subagents"
+	if got != want {
+		t.Errorf("agentDir = %q, want %q", got, want)
+	}
+}
+
 func TestFindAgentFiles(t *testing.T) {
 	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "session-abc.jsonl")
-	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+	parentPath, _ := makeSessionDir(t, dir, "session-abc")
 
+	// No agent files yet.
 	files, err := FindAgentFiles(parentPath)
 	if err != nil {
 		t.Fatalf("FindAgentFiles: %v", err)
@@ -27,9 +56,11 @@ func TestFindAgentFiles(t *testing.T) {
 		t.Fatalf("expected 0 agent files, got %d", len(files))
 	}
 
-	writeTestFile(t, filepath.Join(dir, "agent-def.jsonl"), `{"uuid":"a1"}`+"\n")
-	writeTestFile(t, filepath.Join(dir, "agent-ghi.jsonl"), `{"uuid":"a2"}`+"\n")
-	writeTestFile(t, filepath.Join(dir, "other.jsonl"), `{"uuid":"o1"}`+"\n")
+	// Add some agent files and a non-agent file.
+	subDir := filepath.Join(dir, "session-abc", "subagents")
+	writeTestFile(t, filepath.Join(subDir, "agent-def.jsonl"), `{"uuid":"a1"}`+"\n")
+	writeTestFile(t, filepath.Join(subDir, "agent-ghi.jsonl"), `{"uuid":"a2"}`+"\n")
+	writeTestFile(t, filepath.Join(subDir, "other.jsonl"), `{"uuid":"o1"}`+"\n")
 
 	files, err = FindAgentFiles(parentPath)
 	if err != nil {
@@ -40,10 +71,41 @@ func TestFindAgentFiles(t *testing.T) {
 	}
 }
 
-func TestFindAgentFiles_BadDir(t *testing.T) {
-	_, err := FindAgentFiles("/nonexistent/path/session.jsonl")
-	if err == nil {
-		t.Fatal("expected error for nonexistent directory")
+func TestFindAgentFiles_NoSubagentsDir(t *testing.T) {
+	dir := t.TempDir()
+	parentPath := filepath.Join(dir, "session-abc.jsonl")
+	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+
+	// No subagents directory at all — should return empty, not error.
+	files, err := FindAgentFiles(parentPath)
+	if err != nil {
+		t.Fatalf("FindAgentFiles: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 agent files, got %d", len(files))
+	}
+}
+
+func TestFindAgentFiles_CrossSessionIsolation(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create two sessions in the same slug directory.
+	parentA, subA := makeSessionDir(t, dir, "session-aaa")
+	_, subB := makeSessionDir(t, dir, "session-bbb")
+
+	writeTestFile(t, filepath.Join(subA, "agent-a1.jsonl"), `{"uuid":"a1"}`+"\n")
+	writeTestFile(t, filepath.Join(subB, "agent-b1.jsonl"), `{"uuid":"b1"}`+"\n")
+
+	// Session A should only see its own agents.
+	files, err := FindAgentFiles(parentA)
+	if err != nil {
+		t.Fatalf("FindAgentFiles: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 agent file for session A, got %d: %v", len(files), files)
+	}
+	if filepath.Base(files[0]) != "agent-a1.jsonl" {
+		t.Errorf("expected agent-a1.jsonl, got %s", filepath.Base(files[0]))
 	}
 }
 
@@ -91,12 +153,11 @@ func TestExtractParentToolUseID_Missing(t *testing.T) {
 
 func TestFindAgentMappings(t *testing.T) {
 	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "session-abc.jsonl")
-	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+	parentPath, subDir := makeSessionDir(t, dir, "session-abc")
 
-	writeTestFile(t, filepath.Join(dir, "agent-def.jsonl"),
+	writeTestFile(t, filepath.Join(subDir, "agent-def.jsonl"),
 		`{"uuid":"a1","type":"system","parentToolUseId":"toolu_111"}`+"\n")
-	writeTestFile(t, filepath.Join(dir, "agent-ghi.jsonl"),
+	writeTestFile(t, filepath.Join(subDir, "agent-ghi.jsonl"),
 		`{"uuid":"a2","type":"system","parentToolUseId":"toolu_222"}`+"\n")
 
 	mappings, err := FindAgentMappings(parentPath)
@@ -121,14 +182,13 @@ func TestFindAgentMappings(t *testing.T) {
 
 func TestReadAgentSession(t *testing.T) {
 	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "session-abc.jsonl")
-	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+	parentPath, subDir := makeSessionDir(t, dir, "session-abc")
 
 	agentContent := `{"uuid":"a1","type":"system","parentToolUseId":"toolu_111"}` + "\n" +
 		`{"uuid":"a2","parentUuid":"a1","type":"user","message":{"role":"user","content":"do task"}}` + "\n" +
 		`{"uuid":"a3","parentUuid":"a2","type":"assistant","message":{"role":"assistant","content":"done"}}` + "\n" +
 		`{"uuid":"a4","parentUuid":"a3","type":"result","message":{"role":"result"}}` + "\n"
-	writeTestFile(t, filepath.Join(dir, "agent-myagent.jsonl"), agentContent)
+	writeTestFile(t, filepath.Join(subDir, "agent-myagent.jsonl"), agentContent)
 
 	sess, err := ReadAgentSession(parentPath, "myagent")
 	if err != nil {
@@ -144,12 +204,11 @@ func TestReadAgentSession(t *testing.T) {
 
 func TestReadAgentSession_Running(t *testing.T) {
 	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "session-abc.jsonl")
-	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+	parentPath, subDir := makeSessionDir(t, dir, "session-abc")
 
 	agentContent := `{"uuid":"a1","type":"system","parentToolUseId":"toolu_111"}` + "\n" +
 		`{"uuid":"a2","parentUuid":"a1","type":"assistant","message":{"role":"assistant","content":"working..."}}` + "\n"
-	writeTestFile(t, filepath.Join(dir, "agent-running.jsonl"), agentContent)
+	writeTestFile(t, filepath.Join(subDir, "agent-running.jsonl"), agentContent)
 
 	sess, err := ReadAgentSession(parentPath, "running")
 	if err != nil {
@@ -162,12 +221,11 @@ func TestReadAgentSession_Running(t *testing.T) {
 
 func TestReadAgentSession_Failed(t *testing.T) {
 	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "session-abc.jsonl")
-	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+	parentPath, subDir := makeSessionDir(t, dir, "session-abc")
 
 	agentContent := `{"uuid":"a1","type":"system","parentToolUseId":"toolu_111"}` + "\n" +
 		`{"uuid":"a2","parentUuid":"a1","type":"result","message":{"is_error":true}}` + "\n"
-	writeTestFile(t, filepath.Join(dir, "agent-failed.jsonl"), agentContent)
+	writeTestFile(t, filepath.Join(subDir, "agent-failed.jsonl"), agentContent)
 
 	sess, err := ReadAgentSession(parentPath, "failed")
 	if err != nil {
@@ -180,12 +238,14 @@ func TestReadAgentSession_Failed(t *testing.T) {
 
 func TestReadAgentSession_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "session-abc.jsonl")
-	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+	parentPath, _ := makeSessionDir(t, dir, "session-abc")
 
 	_, err := ReadAgentSession(parentPath, "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent agent")
+	}
+	if !errors.Is(err, ErrAgentNotFound) {
+		t.Errorf("expected ErrAgentNotFound, got: %v", err)
 	}
 }
 
@@ -213,13 +273,7 @@ func TestValidateAgentID(t *testing.T) {
 
 func TestReadAgentSession_PathTraversal(t *testing.T) {
 	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "session-abc.jsonl")
-	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
-
-	// Create a file outside the session directory that could be targeted.
-	outsideDir := t.TempDir()
-	writeTestFile(t, filepath.Join(outsideDir, "agent-secret.jsonl"),
-		`{"uuid":"s1","type":"system"}`+"\n")
+	parentPath, _ := makeSessionDir(t, dir, "session-abc")
 
 	traversalIDs := []string{
 		"../../../etc/passwd",
@@ -236,12 +290,11 @@ func TestReadAgentSession_PathTraversal(t *testing.T) {
 
 func TestReadAgentSession_CorruptFile(t *testing.T) {
 	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "session-abc.jsonl")
-	writeTestFile(t, parentPath, `{"uuid":"u1","type":"user"}`+"\n")
+	parentPath, subDir := makeSessionDir(t, dir, "session-abc")
 
 	// Write a corrupt agent file — parseFile skips malformed lines,
 	// so this produces an empty transcript with "pending" status.
-	writeTestFile(t, filepath.Join(dir, "agent-corrupt.jsonl"), "not json at all\n")
+	writeTestFile(t, filepath.Join(subDir, "agent-corrupt.jsonl"), "not json at all\n")
 
 	sess, err := ReadAgentSession(parentPath, "corrupt")
 	if err != nil {
@@ -249,6 +302,29 @@ func TestReadAgentSession_CorruptFile(t *testing.T) {
 	}
 	if sess.Status != AgentStatusPending {
 		t.Errorf("status = %q, want %q (all lines were unparseable)", sess.Status, AgentStatusPending)
+	}
+}
+
+func TestReadAgentSession_StatError(t *testing.T) {
+	dir := t.TempDir()
+	parentPath, subDir := makeSessionDir(t, dir, "session-abc")
+
+	// Create agent file then make it unreadable by removing the subagents dir.
+	writeTestFile(t, filepath.Join(subDir, "agent-perm.jsonl"), `{"uuid":"a1"}`+"\n")
+
+	// Remove execute permission from subagents dir so Stat fails with permission error.
+	if err := os.Chmod(subDir, 0o000); err != nil {
+		t.Skipf("cannot change permissions: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(subDir, 0o755) }) //nolint:errcheck
+
+	_, err := ReadAgentSession(parentPath, "perm")
+	if err == nil {
+		t.Fatal("expected error for permission-denied agent file")
+	}
+	// Should NOT be ErrAgentNotFound — it's a permission error.
+	if errors.Is(err, ErrAgentNotFound) {
+		t.Error("permission error should not be wrapped as ErrAgentNotFound")
 	}
 }
 
