@@ -511,7 +511,22 @@ func DefaultSearchPaths() []string {
 	if err != nil {
 		return nil
 	}
-	return []string{filepath.Join(home, ".claude", "projects")}
+	paths := []string{filepath.Join(home, ".claude", "projects")}
+	// Include aimux account directories — aimux stores per-account Claude
+	// data under ~/.aimux/claude/<account>/projects/.
+	aimuxBase := filepath.Join(home, ".aimux", "claude")
+	entries, err := os.ReadDir(aimuxBase)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				p := filepath.Join(aimuxBase, e.Name(), "projects")
+				if info, err := os.Stat(p); err == nil && info.IsDir() {
+					paths = append(paths, p)
+				}
+			}
+		}
+	}
+	return paths
 }
 
 // MergeSearchPaths merges default paths with user-configured extra paths,
