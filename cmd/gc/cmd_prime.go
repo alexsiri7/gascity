@@ -154,11 +154,27 @@ func doPrimeWithMode(args []string, stdout, _ io.Writer, hookMode bool) int { //
 				return 0
 			}
 		}
+		// Pool agents without a prompt_template get the built-in
+		// pool-worker prompt which includes formula-following instructions.
+		if ok && a.PromptTemplate == "" && a.IsPool() {
+			fmt.Fprint(stdout, builtinPoolWorkerPrompt()) //nolint:errcheck // best-effort stdout
+			return 0
+		}
 	}
 
 	// Fallback: default run-once prompt.
 	fmt.Fprint(stdout, defaultPrimePrompt) //nolint:errcheck // best-effort stdout
 	return 0
+}
+
+// builtinPoolWorkerPrompt returns the embedded pool-worker.md content.
+// Used as the default prompt for pool agents without a prompt_template.
+func builtinPoolWorkerPrompt() string {
+	content, err := defaultPrompts.ReadFile("prompts/pool-worker.md")
+	if err != nil {
+		return defaultPrimePrompt // graceful fallback
+	}
+	return string(content)
 }
 
 func readPrimeHookContext() (sessionID, source string) {

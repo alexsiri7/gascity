@@ -514,7 +514,7 @@ func TestDiscoverSessionBeads_IncludesBeadCreatedSessions(t *testing.T) {
 
 	cfg := &config.City{
 		Agents: []config.Agent{
-			{Name: "helper"},
+			{Name: "helper", StartCommand: "echo"},
 		},
 	}
 	sp := runtime.NewFake()
@@ -677,7 +677,7 @@ func TestDiscoverSessionBeads_RigQualifiedTemplate(t *testing.T) {
 
 	cfg := &config.City{
 		Agents: []config.Agent{
-			{Name: "worker", Dir: "myrig"},
+			{Name: "worker", Dir: "myrig", StartCommand: "echo"},
 		},
 	}
 	sp := runtime.NewFake()
@@ -2212,6 +2212,53 @@ max = 3
 	}
 	if stdout.String() != promptContent {
 		t.Errorf("stdout = %q, want pool worker prompt %q", stdout.String(), promptContent)
+	}
+}
+
+func TestDoPrimePoolAgentFallback(t *testing.T) {
+	// A pool agent with no prompt_template gets the built-in pool-worker
+	// prompt (which includes formula-following instructions).
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".gc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tomlContent := `[workspace]
+name = "test-city"
+
+[[agent]]
+name = "polecat"
+dir = "myrig"
+start_command = "echo"
+
+[agent.pool]
+min = 0
+max = -1
+`
+	if err := os.WriteFile(filepath.Join(dir, "city.toml"), []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := doPrime([]string{"polecat"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("doPrime = %d, want 0; stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	// Should get pool-worker prompt, not the generic default.
+	if out == defaultPrimePrompt {
+		t.Error("pool agent got generic defaultPrimePrompt, want pool-worker prompt")
+	}
+	if !strings.Contains(out, "Following Your Formula") {
+		t.Error("pool-worker prompt missing formula-following instructions")
+	}
+	if !strings.Contains(out, "GUPP") {
+		t.Error("pool-worker prompt missing GUPP")
 	}
 }
 
