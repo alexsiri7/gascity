@@ -50,6 +50,8 @@ type TemplateParams struct {
 	InstanceName string
 	// RigName is the resolved rig association (empty if none).
 	RigName string
+	// WakeMode controls whether the next wake resumes or starts fresh conversation state.
+	WakeMode string
 	// IsACP is true if session = "acp".
 	IsACP bool
 }
@@ -215,6 +217,7 @@ func resolveTemplate(p *agentBuildParams, cfgAgent *config.Agent, qualifiedName 
 		TemplateName:     templateNameFor(cfgAgent, qualifiedName),
 		InstanceName:     qualifiedName,
 		RigName:          rigName,
+		WakeMode:         cfgAgent.WakeMode,
 		IsACP:            cfgAgent.Session == "acp",
 	}, nil
 }

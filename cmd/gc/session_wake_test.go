@@ -55,6 +55,9 @@ func TestPreWakeCommit(t *testing.T) {
 	if got.Metadata["sleep_reason"] != "" {
 		t.Error("expected sleep_reason to be cleared")
 	}
+	if got.Metadata["continuation_epoch"] != "1" {
+		t.Errorf("stored continuation_epoch = %q, want 1", got.Metadata["continuation_epoch"])
+	}
 }
 
 func TestPreWakeCommit_InvalidName(t *testing.T) {
@@ -72,6 +75,66 @@ func TestPreWakeCommit_InvalidName(t *testing.T) {
 	_, _, err := preWakeCommit(&b, store, clk)
 	if err == nil {
 		t.Error("expected error for invalid session_name")
+	}
+}
+
+func TestPreWakeCommit_BumpsContinuationEpochForFreshWake(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	store := beads.NewMemStore()
+
+	b, err := store.Create(beads.Bead{
+		Title: "fresh-session",
+		Metadata: map[string]string{
+			"session_name":       "fresh-worker",
+			"template":           "worker",
+			"generation":         "2",
+			"continuation_epoch": "3",
+			"wake_mode":          "fresh",
+			"last_woke_at":       now.Add(-time.Minute).UTC().Format(time.RFC3339),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := preWakeCommit(&b, store, clk); err != nil {
+		t.Fatalf("preWakeCommit: %v", err)
+	}
+	got, _ := store.Get(b.ID)
+	if got.Metadata["continuation_epoch"] != "4" {
+		t.Fatalf("continuation_epoch = %q, want 4", got.Metadata["continuation_epoch"])
+	}
+}
+
+func TestPreWakeCommit_BumpsContinuationEpochForPendingReset(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	store := beads.NewMemStore()
+
+	b, err := store.Create(beads.Bead{
+		Title: "reset-session",
+		Metadata: map[string]string{
+			"session_name":               "reset-worker",
+			"template":                   "worker",
+			"generation":                 "2",
+			"continuation_epoch":         "5",
+			"continuation_reset_pending": "true",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := preWakeCommit(&b, store, clk); err != nil {
+		t.Fatalf("preWakeCommit: %v", err)
+	}
+	got, _ := store.Get(b.ID)
+	if got.Metadata["continuation_epoch"] != "6" {
+		t.Fatalf("continuation_epoch = %q, want 6", got.Metadata["continuation_epoch"])
+	}
+	if got.Metadata["continuation_reset_pending"] != "" {
+		t.Fatalf("continuation_reset_pending = %q, want empty", got.Metadata["continuation_reset_pending"])
 	}
 }
 
@@ -287,7 +350,7 @@ func TestAdvanceSessionDrains_ProcessExited(t *testing.T) {
 	advanceSessionDrains(dt, sp, store, func(id string) *beads.Bead {
 		got, _ := store.Get(id)
 		return &got
-	}, cfg, map[string]int{}, nil, clk)
+	}, cfg, map[string]int{}, nil, nil, clk)
 
 	// Drain should be cleaned up.
 	if dt.get(b.ID) != nil {
@@ -336,7 +399,7 @@ func TestAdvanceSessionDrains_Timeout(t *testing.T) {
 	advanceSessionDrains(dt, sp, store, func(id string) *beads.Bead {
 		got, _ := store.Get(id)
 		return &got
-	}, cfg, map[string]int{}, nil, clk)
+	}, cfg, map[string]int{}, nil, nil, clk)
 
 	// Should have force-stopped.
 	if sp.IsRunning("test-session") {
@@ -383,7 +446,7 @@ func TestAdvanceSessionDrains_WakeReasonsReappear(t *testing.T) {
 	advanceSessionDrains(dt, sp, store, func(id string) *beads.Bead {
 		got, _ := store.Get(id)
 		return &got
-	}, cfg, map[string]int{}, nil, clk)
+	}, cfg, map[string]int{}, nil, nil, clk)
 
 	// Drain should be canceled — wake reasons reappeared.
 	if dt.get(b.ID) != nil {
@@ -431,7 +494,7 @@ func TestAdvanceSessionDrains_ConfigDriftNotCancelable(t *testing.T) {
 	advanceSessionDrains(dt, sp, store, func(id string) *beads.Bead {
 		got, _ := store.Get(id)
 		return &got
-	}, cfg, map[string]int{}, nil, clk)
+	}, cfg, map[string]int{}, nil, nil, clk)
 
 	// Drain should NOT be canceled — config-drift is non-cancelable.
 	// Session is alive and deadline not reached, so drain continues.
@@ -474,7 +537,7 @@ func TestAdvanceSessionDrains_TimeoutTokenMismatch(t *testing.T) {
 	advanceSessionDrains(dt, sp, store, func(id string) *beads.Bead {
 		got, _ := store.Get(id)
 		return &got
-	}, cfg, map[string]int{}, nil, clk)
+	}, cfg, map[string]int{}, nil, nil, clk)
 
 	// Drain should be canceled (stale token), session still running.
 	if dt.get(b.ID) != nil {
@@ -515,6 +578,44 @@ func TestCompleteDrain_ClearsLastWokeAt(t *testing.T) {
 	}
 	if got.Metadata["sleep_reason"] != "idle" {
 		t.Errorf("sleep_reason = %q, want idle", got.Metadata["sleep_reason"])
+	}
+}
+
+func TestAdvanceSessionDrains_CancelsForReadyWait(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	sp := runtime.NewFake()
+	store := beads.NewMemStore()
+	dt := newDrainTracker()
+
+	_ = sp.Start(context.Background(), "test-session", runtime.Config{})
+
+	b, _ := store.Create(beads.Bead{
+		Title: "test",
+		Metadata: map[string]string{
+			"session_name": "test-session",
+			"template":     "worker",
+			"generation":   "3",
+		},
+	})
+
+	dt.set(b.ID, &drainState{
+		startedAt:  now.Add(-10 * time.Second),
+		deadline:   now.Add(20 * time.Second),
+		reason:     "wait-hold",
+		generation: 3,
+	})
+
+	advanceSessionDrains(dt, sp, store, func(id string) *beads.Bead {
+		got, _ := store.Get(id)
+		return &got
+	}, &config.City{}, map[string]int{}, nil, map[string]bool{b.ID: true}, clk)
+
+	if dt.get(b.ID) != nil {
+		t.Fatal("drain should be canceled when a wait becomes ready mid-drain")
+	}
+	if !sp.IsRunning("test-session") {
+		t.Fatal("session should remain running after wait-based drain cancellation")
 	}
 }
 

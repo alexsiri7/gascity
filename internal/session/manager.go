@@ -90,6 +90,14 @@ type Manager struct {
 	transportResolver func(template string) string
 }
 
+// PruneResult reports which sessions were pruned and which queued wait nudges
+// should be eagerly withdrawn afterward.
+type PruneResult struct {
+	Count        int
+	SessionIDs   []string
+	WaitNudgeIDs []string
+}
+
 type acpRouteRegistrar interface {
 	RouteACP(name string)
 	Unroute(name string)
@@ -185,14 +193,17 @@ func (m *Manager) CreateWithTransport(ctx context.Context, template, title, comm
 
 	// Create the bead first to get the ID.
 	meta := map[string]string{
-		"template":       template,
-		"state":          string(StateActive),
-		"provider":       provider,
-		"work_dir":       workDir,
-		"command":        command,
-		"resume_flag":    resume.ResumeFlag,
-		"resume_style":   resume.ResumeStyle,
-		"resume_command": resume.ResumeCommand,
+		"template":           template,
+		"state":              string(StateActive),
+		"provider":           provider,
+		"work_dir":           workDir,
+		"command":            command,
+		"resume_flag":        resume.ResumeFlag,
+		"resume_style":       resume.ResumeStyle,
+		"resume_command":     resume.ResumeCommand,
+		"generation":         fmt.Sprintf("%d", DefaultGeneration),
+		"continuation_epoch": fmt.Sprintf("%d", DefaultContinuationEpoch),
+		"instance_token":     NewInstanceToken(),
 	}
 	if normalizedTransport := normalizeTransport(provider, transport); normalizedTransport != "" {
 		meta["transport"] = normalizedTransport
@@ -234,7 +245,13 @@ func (m *Manager) CreateWithTransport(ctx context.Context, template, title, comm
 	cfg := hints
 	cfg.Command = startCommand
 	cfg.WorkDir = workDir
-	cfg.Env = mergeEnv(cfg.Env, env)
+	cfg.Env = mergeEnv(mergeEnv(cfg.Env, env), RuntimeEnv(
+		b.ID,
+		sessName,
+		DefaultGeneration,
+		DefaultContinuationEpoch,
+		meta["instance_token"],
+	))
 
 	// Start the runtime session.
 	if err := m.sp.Start(ctx, sessName, cfg); err != nil {
@@ -264,14 +281,17 @@ func (m *Manager) CreateBeadOnly(template, title, command, workDir, provider, tr
 	}
 
 	meta := map[string]string{
-		"template":       template,
-		"state":          "creating",
-		"provider":       provider,
-		"work_dir":       workDir,
-		"command":        command,
-		"resume_flag":    resume.ResumeFlag,
-		"resume_style":   resume.ResumeStyle,
-		"resume_command": resume.ResumeCommand,
+		"template":           template,
+		"state":              "creating",
+		"provider":           provider,
+		"work_dir":           workDir,
+		"command":            command,
+		"resume_flag":        resume.ResumeFlag,
+		"resume_style":       resume.ResumeStyle,
+		"resume_command":     resume.ResumeCommand,
+		"generation":         fmt.Sprintf("%d", DefaultGeneration),
+		"continuation_epoch": fmt.Sprintf("%d", DefaultContinuationEpoch),
+		"instance_token":     NewInstanceToken(),
 	}
 	if normalizedTransport := normalizeTransport(provider, transport); normalizedTransport != "" {
 		meta["transport"] = normalizedTransport
@@ -362,6 +382,7 @@ func (m *Manager) Close(id string) error {
 		// Best-effort stop cleans up any live runtime and allows auto.Provider
 		// to discard stale ACP route entries for suspended sessions as well.
 		_ = m.sp.Stop(sessName)
+		_ = CancelWaits(m.store, id, time.Now().UTC())
 
 		return m.store.Close(id)
 	})
@@ -454,11 +475,18 @@ func (m *Manager) Rename(id, title string) error {
 // cutoff. Active and already-closed sessions are never pruned.
 // Returns the number of sessions pruned.
 func (m *Manager) Prune(before time.Time) (int, error) {
+	result, err := m.PruneDetailed(before)
+	return result.Count, err
+}
+
+// PruneDetailed closes suspended sessions whose suspension time is before the
+// given cutoff and reports the affected session IDs and queued wait nudges.
+func (m *Manager) PruneDetailed(before time.Time) (PruneResult, error) {
 	all, err := m.store.ListByLabel(LabelSession, 0)
 	if err != nil {
-		return 0, fmt.Errorf("listing sessions: %w", err)
+		return PruneResult{}, fmt.Errorf("listing sessions: %w", err)
 	}
-	var pruned int
+	result := PruneResult{}
 	for _, b := range all {
 		if b.Type != BeadType {
 			continue
@@ -481,12 +509,19 @@ func (m *Manager) Prune(before time.Time) (int, error) {
 		if !ts.Before(before) {
 			continue
 		}
-		if err := m.store.Close(b.ID); err != nil {
-			return pruned, fmt.Errorf("closing session %s: %w", b.ID, err)
+		nudgeIDs, err := WaitNudgeIDs(m.store, b.ID)
+		if err != nil {
+			return result, fmt.Errorf("listing wait nudges for session %s: %w", b.ID, err)
 		}
-		pruned++
+		result.WaitNudgeIDs = append(result.WaitNudgeIDs, nudgeIDs...)
+		_ = CancelWaits(m.store, b.ID, time.Now().UTC())
+		if err := m.store.Close(b.ID); err != nil {
+			return result, fmt.Errorf("closing session %s: %w", b.ID, err)
+		}
+		result.Count++
+		result.SessionIDs = append(result.SessionIDs, b.ID)
 	}
-	return pruned, nil
+	return result, nil
 }
 
 // Get returns info about a single session.

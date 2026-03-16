@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/runtime"
+	sessionpkg "github.com/gastownhall/gascity/internal/session"
 )
 
 // buildDepsMap extracts template dependency edges from config for topo ordering.
@@ -133,6 +135,7 @@ func reconcileSessionBeads(
 	sp runtime.Provider,
 	store beads.Store,
 	workSet map[string]bool,
+	readyWaitSet map[string]bool,
 	dt *drainTracker,
 	poolDesired map[string]int,
 	cityName string,
@@ -286,7 +289,7 @@ func reconcileSessionBeads(
 
 		// Compute wake reasons using the full contract (includes held_until,
 		// attachment checks, pool desired counts).
-		reasons := wakeReasons(*session, cfg, sp, poolDesired, workSet, clk)
+		reasons := wakeReasons(*session, cfg, sp, poolDesired, workSet, readyWaitSet, clk)
 		shouldWake := len(reasons) > 0
 
 		if shouldWake && !alive {
@@ -326,6 +329,27 @@ func reconcileSessionBeads(
 				firstStart := session.Metadata["started_config_hash"] == ""
 				agentCfg.Command = resolveSessionCommand(agentCfg.Command, sk, tp.ResolvedProvider, firstStart)
 			}
+			generation, _ := strconv.Atoi(session.Metadata["generation"])
+			if generation <= 0 {
+				generation = sessionpkg.DefaultGeneration
+			}
+			continuationEpoch, _ := strconv.Atoi(session.Metadata["continuation_epoch"])
+			if continuationEpoch <= 0 {
+				continuationEpoch = sessionpkg.DefaultContinuationEpoch
+			}
+			instanceToken := session.Metadata["instance_token"]
+			if instanceToken == "" {
+				instanceToken = sessionpkg.NewInstanceToken()
+				_ = store.SetMetadata(session.ID, "instance_token", instanceToken)
+				session.Metadata["instance_token"] = instanceToken
+			}
+			agentCfg.Env = mergeEnv(agentCfg.Env, sessionpkg.RuntimeEnv(
+				session.ID,
+				name,
+				generation,
+				continuationEpoch,
+				instanceToken,
+			))
 			err := sp.Start(startCtx, name, agentCfg)
 			if startCancel != nil {
 				startCancel()
@@ -369,8 +393,12 @@ func reconcileSessionBeads(
 
 		if !shouldWake && alive {
 			// No reason to be awake — begin drain.
-			beginSessionDrain(*session, sp, dt, "no-wake-reason", clk, defaultDrainTimeout)
-			fmt.Fprintf(stdout, "Draining session '%s': no-wake-reason\n", name) //nolint:errcheck
+			reason := "no-wake-reason"
+			if intent := session.Metadata["sleep_intent"]; intent != "" {
+				reason = intent
+			}
+			beginSessionDrain(*session, sp, dt, reason, clk, defaultDrainTimeout)
+			fmt.Fprintf(stdout, "Draining session '%s': %s\n", name, reason) //nolint:errcheck
 		}
 	}
 
@@ -378,7 +406,7 @@ func reconcileSessionBeads(
 	sessionLookup := func(id string) *beads.Bead {
 		return beadByID[id]
 	}
-	advanceSessionDrains(dt, sp, store, sessionLookup, cfg, poolDesired, workSet, clk)
+	advanceSessionDrains(dt, sp, store, sessionLookup, cfg, poolDesired, workSet, readyWaitSet, clk)
 
 	return wakeCount
 }

@@ -27,6 +27,33 @@ func (p *startOverrideProvider) Start(ctx context.Context, name string, cfg runt
 	return p.Fake.Start(ctx, name, cfg)
 }
 
+func createTestWait(t *testing.T, store beads.Store, sessionID string) beads.Bead {
+	t.Helper()
+	wait, err := store.Create(beads.Bead{
+		Type:   WaitBeadType,
+		Labels: []string{WaitBeadLabel, "session:" + sessionID},
+		Metadata: map[string]string{
+			"session_id": sessionID,
+			"state":      "pending",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create wait: %v", err)
+	}
+	return wait
+}
+
+type waitFailStore struct {
+	*beads.MemStore
+}
+
+func (s waitFailStore) ListByLabel(label string, limit int) ([]beads.Bead, error) {
+	if label == WaitBeadLabel {
+		return nil, errors.New("wait list failed")
+	}
+	return s.MemStore.ListByLabel(label, limit)
+}
+
 func TestCreate(t *testing.T) {
 	store := beads.NewMemStore()
 	sp := runtime.NewFake()
@@ -74,6 +101,31 @@ func TestCreate(t *testing.T) {
 	if !hasLabel {
 		t.Errorf("bead missing label %q", LabelSession)
 	}
+	if b.Metadata["generation"] != "1" {
+		t.Errorf("generation = %q, want 1", b.Metadata["generation"])
+	}
+	if b.Metadata["continuation_epoch"] != "1" {
+		t.Errorf("continuation_epoch = %q, want 1", b.Metadata["continuation_epoch"])
+	}
+	if b.Metadata["instance_token"] == "" {
+		t.Error("instance_token is empty")
+	}
+	startCall := sp.Calls[0]
+	if startCall.Method != "Start" {
+		t.Fatalf("first runtime call = %q, want Start", startCall.Method)
+	}
+	if got := startCall.Config.Env["GC_SESSION_ID"]; got != info.ID {
+		t.Errorf("GC_SESSION_ID = %q, want %q", got, info.ID)
+	}
+	if got := startCall.Config.Env["GC_CONTINUATION_EPOCH"]; got != "1" {
+		t.Errorf("GC_CONTINUATION_EPOCH = %q, want 1", got)
+	}
+	if got := startCall.Config.Env["GC_RUNTIME_EPOCH"]; got != "1" {
+		t.Errorf("GC_RUNTIME_EPOCH = %q, want 1", got)
+	}
+	if got := startCall.Config.Env["GC_INSTANCE_TOKEN"]; got == "" {
+		t.Error("GC_INSTANCE_TOKEN is empty")
+	}
 }
 
 func TestCreateBeadOnly(t *testing.T) {
@@ -88,6 +140,19 @@ func TestCreateBeadOnly(t *testing.T) {
 	if info.Template != "helper" {
 		t.Errorf("Template = %q, want %q", info.Template, "helper")
 	}
+	b, err := store.Get(info.ID)
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if b.Metadata["generation"] != "1" {
+		t.Errorf("generation = %q, want 1", b.Metadata["generation"])
+	}
+	if b.Metadata["continuation_epoch"] != "1" {
+		t.Errorf("continuation_epoch = %q, want 1", b.Metadata["continuation_epoch"])
+	}
+	if b.Metadata["instance_token"] == "" {
+		t.Error("instance_token is empty")
+	}
 	if info.ID == "" {
 		t.Error("ID is empty")
 	}
@@ -98,10 +163,6 @@ func TestCreateBeadOnly(t *testing.T) {
 	}
 
 	// Verify bead was created with state "creating" (not "active").
-	b, err := store.Get(info.ID)
-	if err != nil {
-		t.Fatalf("store.Get: %v", err)
-	}
 	if b.Metadata["state"] != "creating" {
 		t.Errorf("bead state = %q, want %q", b.Metadata["state"], "creating")
 	}
@@ -193,6 +254,7 @@ func TestClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	wait := createTestWait(t, store, info.ID)
 
 	// Close active session.
 	if err := mgr.Close(info.ID); err != nil {
@@ -211,6 +273,13 @@ func TestClose(t *testing.T) {
 	}
 	if b.Status != "closed" {
 		t.Errorf("bead Status = %q, want %q", b.Status, "closed")
+	}
+	wait, err = store.Get(wait.ID)
+	if err != nil {
+		t.Fatalf("store.Get(wait): %v", err)
+	}
+	if wait.Metadata["state"] != waitStateCanceled {
+		t.Fatalf("wait state = %q, want %q", wait.Metadata["state"], waitStateCanceled)
 	}
 
 	// Close again is idempotent.
@@ -243,6 +312,29 @@ func TestCloseSuspended(t *testing.T) {
 	}
 	if b.Status != "closed" {
 		t.Errorf("bead Status = %q, want %q", b.Status, "closed")
+	}
+}
+
+func TestClose_IgnoresWaitCancellationFailure(t *testing.T) {
+	store := waitFailStore{MemStore: beads.NewMemStore()}
+	sp := runtime.NewFake()
+	mgr := NewManager(store, sp)
+
+	info, err := mgr.Create(context.Background(), "helper", "", "claude", "/tmp", "claude", nil, ProviderResume{}, runtime.Config{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := mgr.Close(info.ID); err != nil {
+		t.Fatalf("Close should succeed despite wait cancellation failure: %v", err)
+	}
+
+	b, err := store.Get(info.ID)
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if b.Status != "closed" {
+		t.Fatalf("bead Status = %q, want closed", b.Status)
 	}
 }
 
@@ -748,6 +840,8 @@ func TestPrune(t *testing.T) {
 	if err := mgr.Suspend(s2.ID); err != nil {
 		t.Fatal(err)
 	}
+	wait1 := createTestWait(t, store, s1.ID)
+	wait2 := createTestWait(t, store, s2.ID)
 
 	// Prune with cutoff in the future — should prune both.
 	pruned, err := mgr.Prune(time.Now().Add(time.Hour))
@@ -769,6 +863,52 @@ func TestPrune(t *testing.T) {
 				t.Errorf("session %s state = %q after prune, want empty (closed)", s.ID, s.State)
 			}
 		}
+	}
+	wait1, err = store.Get(wait1.ID)
+	if err != nil {
+		t.Fatalf("store.Get(wait1): %v", err)
+	}
+	if wait1.Metadata["state"] != waitStateCanceled {
+		t.Fatalf("wait1 state = %q, want %q", wait1.Metadata["state"], waitStateCanceled)
+	}
+	wait2, err = store.Get(wait2.ID)
+	if err != nil {
+		t.Fatalf("store.Get(wait2): %v", err)
+	}
+	if wait2.Metadata["state"] != waitStateCanceled {
+		t.Fatalf("wait2 state = %q, want %q", wait2.Metadata["state"], waitStateCanceled)
+	}
+}
+
+func TestPruneDetailedReportsWaitNudges(t *testing.T) {
+	store := beads.NewMemStore()
+	sp := runtime.NewFake()
+	mgr := NewManager(store, sp)
+
+	info, err := mgr.Create(context.Background(), "default", "S1", "echo s1", "/tmp", "test", nil, ProviderResume{}, runtime.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Suspend(info.ID); err != nil {
+		t.Fatal(err)
+	}
+	wait := createTestWait(t, store, info.ID)
+	if err := store.SetMetadata(wait.ID, "nudge_id", "wait-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := mgr.PruneDetailed(time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Count != 1 {
+		t.Fatalf("result.Count = %d, want 1", result.Count)
+	}
+	if len(result.SessionIDs) != 1 || result.SessionIDs[0] != info.ID {
+		t.Fatalf("result.SessionIDs = %#v, want [%q]", result.SessionIDs, info.ID)
+	}
+	if len(result.WaitNudgeIDs) != 1 || result.WaitNudgeIDs[0] != "wait-1" {
+		t.Fatalf("result.WaitNudgeIDs = %#v, want [wait-1]", result.WaitNudgeIDs)
 	}
 }
 
@@ -924,6 +1064,35 @@ func TestSendResumesSuspendedSession(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("calls = %#v, want Nudge hello", sp.Calls)
+	}
+}
+
+func TestSendResumesSuspendedSession_PersistsBackfilledInstanceToken(t *testing.T) {
+	store := beads.NewMemStore()
+	sp := runtime.NewFake()
+	mgr := NewManager(store, sp)
+
+	info, err := mgr.Create(context.Background(), "helper", "", "claude", "/tmp", "claude", nil, ProviderResume{}, runtime.Config{})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := mgr.Suspend(info.ID); err != nil {
+		t.Fatalf("Suspend: %v", err)
+	}
+	if err := store.SetMetadata(info.ID, "instance_token", ""); err != nil {
+		t.Fatalf("clear instance_token: %v", err)
+	}
+
+	if err := mgr.Send(context.Background(), info.ID, "hello", "claude --resume "+info.SessionKey, runtime.Config{WorkDir: "/tmp"}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	b, err := store.Get(info.ID)
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if b.Metadata["instance_token"] == "" {
+		t.Fatal("instance_token should be persisted after backfill during resume")
 	}
 }
 

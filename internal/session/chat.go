@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/gastownhall/gascity/internal/beads"
@@ -134,6 +135,26 @@ func (m *Manager) ensureRunning(ctx context.Context, id string, b beads.Bead, se
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = b.Metadata["work_dir"]
 	}
+	generation, err := strconv.Atoi(b.Metadata["generation"])
+	if err != nil || generation <= 0 {
+		generation = DefaultGeneration
+	}
+	continuationEpoch, err := strconv.Atoi(b.Metadata["continuation_epoch"])
+	if err != nil || continuationEpoch <= 0 {
+		continuationEpoch = DefaultContinuationEpoch
+	}
+	instanceToken := b.Metadata["instance_token"]
+	if instanceToken == "" {
+		instanceToken = NewInstanceToken()
+		if err := m.store.SetMetadata(id, "instance_token", instanceToken); err != nil {
+			return fmt.Errorf("storing instance token: %w", err)
+		}
+		if b.Metadata == nil {
+			b.Metadata = make(map[string]string)
+		}
+		b.Metadata["instance_token"] = instanceToken
+	}
+	cfg.Env = mergeEnv(cfg.Env, RuntimeEnv(id, sessName, generation, continuationEpoch, instanceToken))
 	started := false
 	if err := m.sp.Start(ctx, sessName, cfg); err != nil {
 		// Another caller may have resumed the same session after we loaded the

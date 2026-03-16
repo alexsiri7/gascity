@@ -221,7 +221,11 @@ func (cr *CityRuntime) run(ctx context.Context) {
 	// a bead store is available, and we have a real city path.
 	if cr.cfg.Daemon.BeadReconcilerEnabled() && cr.cityBeadStore() != nil && cr.tomlPath != "" {
 		cr.sessionDrains = newDrainTracker()
-		fmt.Fprintf(cr.stdout, "%s: bead-driven reconciler enabled\n", cr.logPrefix) //nolint:errcheck
+		msg := "bead-driven reconciler enabled"
+		if cr.cfg.Daemon.BeadReconciler == nil {
+			msg += " (default; set daemon.bead_reconciler=false to use legacy)"
+		}
+		fmt.Fprintf(cr.stdout, "%s: %s\n", cr.logPrefix, msg) //nolint:errcheck
 	}
 
 	// Adoption barrier: ensure every running session has a bead.
@@ -562,7 +566,11 @@ func (cr *CityRuntime) reloadConfig(
 	if nextCfg.Daemon.BeadReconcilerEnabled() && cr.cityBeadStore() != nil && cr.tomlPath != "" {
 		if cr.sessionDrains == nil {
 			cr.sessionDrains = newDrainTracker()
-			fmt.Fprintf(cr.stdout, "%s: bead-driven reconciler enabled (config reload)\n", cr.logPrefix) //nolint:errcheck
+			msg := "bead-driven reconciler enabled (config reload)"
+			if nextCfg.Daemon.BeadReconciler == nil {
+				msg += " (default; set daemon.bead_reconciler=false to use legacy)"
+			}
+			fmt.Fprintf(cr.stdout, "%s: %s\n", cr.logPrefix, msg) //nolint:errcheck
 		}
 	} else {
 		if cr.sessionDrains != nil {
@@ -603,14 +611,22 @@ func (cr *CityRuntime) beadReconcileTick(ctx context.Context, desiredState map[s
 
 	// Compute work set via work_query commands for work-driven wake.
 	workSet := computeWorkSet(cr.cfg, shellScaleCheck, cr.cityPath)
+	readyWaitSet, err := prepareWaitWakeState(store, time.Now())
+	if err != nil {
+		fmt.Fprintf(cr.stderr, "%s: preparing waits: %v\n", cr.logPrefix, err) //nolint:errcheck
+		readyWaitSet = nil
+	}
 
 	reconcileSessionBeads(
 		ctx, open, desiredState, cfgNames, cr.cfg, cr.sp, store,
-		workSet, cr.sessionDrains, poolDesired, cityName,
+		workSet, readyWaitSet, cr.sessionDrains, poolDesired, cityName,
 		clock.Real{}, cr.rec, cr.cfg.Session.StartupTimeoutDuration(),
 		cr.cfg.Daemon.DriftDrainTimeoutDuration(),
 		cr.stdout, cr.stderr,
 	)
+	if err := dispatchReadyWaitNudges(cr.cityPath, store, cr.sp, time.Now()); err != nil {
+		fmt.Fprintf(cr.stderr, "%s: dispatching wait nudges: %v\n", cr.logPrefix, err) //nolint:errcheck
+	}
 }
 
 // upgradeToBeadReconcileOps upgrades rops from providerReconcileOps to

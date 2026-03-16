@@ -18,8 +18,10 @@ func TestSessionWake_ClearsMetadata(t *testing.T) {
 			"template":          "worker",
 			"held_until":        "9999-12-31T23:59:59Z",
 			"quarantined_until": "9999-12-31T23:59:59Z",
+			"wait_hold":         "true",
+			"sleep_intent":      "wait-hold",
 			"wake_attempts":     "5",
-			"sleep_reason":      "user-hold",
+			"sleep_reason":      "wait-hold",
 		},
 	})
 
@@ -27,10 +29,12 @@ func TestSessionWake_ClearsMetadata(t *testing.T) {
 	batch := map[string]string{
 		"held_until":        "",
 		"quarantined_until": "",
+		"wait_hold":         "",
+		"sleep_intent":      "",
 		"wake_attempts":     "0",
 	}
 	sr := b.Metadata["sleep_reason"]
-	if sr == "user-hold" || sr == "quarantine" {
+	if sr == "user-hold" || sr == "wait-hold" || sr == "quarantine" {
 		batch["sleep_reason"] = ""
 	}
 	if err := store.SetMetadataBatch(b.ID, batch); err != nil {
@@ -43,6 +47,12 @@ func TestSessionWake_ClearsMetadata(t *testing.T) {
 	}
 	if got := updated.Metadata["quarantined_until"]; got != "" {
 		t.Errorf("quarantined_until should be cleared, got %q", got)
+	}
+	if got := updated.Metadata["wait_hold"]; got != "" {
+		t.Errorf("wait_hold should be cleared, got %q", got)
+	}
+	if got := updated.Metadata["sleep_intent"]; got != "" {
+		t.Errorf("sleep_intent should be cleared, got %q", got)
 	}
 	if got := updated.Metadata["wake_attempts"]; got != "0" {
 		t.Errorf("wake_attempts should be 0, got %q", got)
@@ -67,10 +77,12 @@ func TestSessionWake_PreservesNonHoldSleepReason(t *testing.T) {
 	batch := map[string]string{
 		"held_until":        "",
 		"quarantined_until": "",
+		"wait_hold":         "",
+		"sleep_intent":      "",
 		"wake_attempts":     "0",
 	}
 	sr := b.Metadata["sleep_reason"]
-	if sr == "user-hold" || sr == "quarantine" {
+	if sr == "user-hold" || sr == "wait-hold" || sr == "quarantine" {
 		batch["sleep_reason"] = ""
 	}
 	if err := store.SetMetadataBatch(b.ID, batch); err != nil {

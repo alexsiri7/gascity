@@ -13,6 +13,7 @@ import (
 	"github.com/gastownhall/gascity/internal/clock"
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/runtime"
+	sessions "github.com/gastownhall/gascity/internal/session"
 	"github.com/gastownhall/gascity/internal/telemetry"
 )
 
@@ -36,7 +37,14 @@ func preWakeCommit(
 
 	gen, _ := strconv.Atoi(session.Metadata["generation"])
 	newGen = gen + 1
-	token = generateToken()
+	token = sessions.NewInstanceToken()
+	continuationEpoch, _ := strconv.Atoi(session.Metadata["continuation_epoch"])
+	if continuationEpoch <= 0 {
+		continuationEpoch = sessions.DefaultContinuationEpoch
+	}
+	if shouldBumpContinuationEpoch(session.Metadata) {
+		continuationEpoch++
+	}
 
 	// Write in a defined order so partial failures on sequential stores
 	// leave detectable (not impossible) state. Token first: a bead with
@@ -44,8 +52,11 @@ func preWakeCommit(
 	// Generation last: only bumped after all other fields are in place.
 	orderedWrites := []struct{ k, v string }{
 		{"instance_token", token},
+		{"continuation_epoch", strconv.Itoa(continuationEpoch)},
+		{"continuation_reset_pending", ""},
 		{"last_woke_at", clk.Now().UTC().Format(time.RFC3339)},
 		{"sleep_reason", ""},
+		{"sleep_intent", ""},
 		{"generation", strconv.Itoa(newGen)}, // must be last
 	}
 	for _, kv := range orderedWrites {
@@ -62,6 +73,16 @@ func preWakeCommit(
 	}
 
 	return newGen, token, nil
+}
+
+func shouldBumpContinuationEpoch(meta map[string]string) bool {
+	if meta == nil {
+		return false
+	}
+	if meta["continuation_reset_pending"] != "" {
+		return true
+	}
+	return meta["wake_mode"] == "fresh" && meta["last_woke_at"] != ""
 }
 
 // validateWorkDir ensures the path is safe to use as a working directory.
@@ -138,6 +159,7 @@ func advanceSessionDrains(
 	cfg *config.City,
 	poolDesired map[string]int,
 	workSet map[string]bool,
+	readyWaitSet map[string]bool,
 	clk clock.Clock,
 ) {
 	for id, ds := range dt.all() {
@@ -159,7 +181,7 @@ func advanceSessionDrains(
 		// they represent explicit lifecycle decisions that should not be
 		// reversed by the wake contract (the session is leaving the desired set).
 		if ds.reason != "config-drift" && ds.reason != "orphaned" && ds.reason != "suspended" {
-			reasons := wakeReasons(*session, cfg, sp, poolDesired, workSet, clk)
+			reasons := wakeReasons(*session, cfg, sp, poolDesired, workSet, readyWaitSet, clk)
 			if len(reasons) > 0 {
 				dt.remove(id)
 				continue

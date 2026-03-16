@@ -134,14 +134,16 @@ func doPrimeWithMode(args []string, stdout, _ io.Writer, hookMode bool) int { //
 				if sessionName == "" {
 					sessionName = cliSessionName(cityPath, cityName, a.QualifiedName(), cfg.Workspace.SessionTemplate)
 				}
-				maybeStartCodexNudgePoller(nudgeTarget{
-					cityPath:    cityPath,
-					cityName:    cityName,
-					cfg:         cfg,
-					agent:       a,
-					resolved:    resolved,
-					sessionName: sessionName,
-				})
+				maybeStartCodexNudgePoller(withNudgeTargetFence(openNudgeBeadStore(cityPath), nudgeTarget{
+					cityPath:          cityPath,
+					cityName:          cityName,
+					cfg:               cfg,
+					agent:             a,
+					resolved:          resolved,
+					sessionID:         os.Getenv("GC_SESSION_ID"),
+					continuationEpoch: os.Getenv("GC_CONTINUATION_EPOCH"),
+					sessionName:       sessionName,
+				}))
 			}
 		}
 		if ok && a.PromptTemplate != "" {

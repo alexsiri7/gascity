@@ -18,14 +18,18 @@ var envKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 // session overlay. These are identity or lifecycle fields whose mutation
 // would violate core invariants.
 var bannedOverlayKeys = map[string]bool{
-	"command":        true,
-	"provider":       true,
-	"session_key":    true,
-	"state":          true,
-	"generation":     true,
-	"instance_token": true,
-	"resume_flag":    true,
-	"resume_style":   true,
+	"command":                    true,
+	"provider":                   true,
+	"session_key":                true,
+	"state":                      true,
+	"generation":                 true,
+	"continuation_epoch":         true,
+	"continuation_reset_pending": true,
+	"instance_token":             true,
+	"wait_hold":                  true,
+	"sleep_intent":               true,
+	"resume_flag":                true,
+	"resume_style":               true,
 }
 
 // ValidateOverlay checks that all keys in overrides are permitted by the

@@ -6,7 +6,7 @@ import (
 )
 
 func TestWakeReason_Constants(t *testing.T) {
-	reasons := []WakeReason{WakeConfig, WakeAttached, WakeWork}
+	reasons := []WakeReason{WakeConfig, WakeAttached, WakeWait, WakeWork}
 	seen := map[WakeReason]bool{}
 	for _, r := range reasons {
 		if seen[r] {

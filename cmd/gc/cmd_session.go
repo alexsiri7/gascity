@@ -39,7 +39,7 @@ continuity.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				fmt.Fprintln(stderr, "gc session: missing subcommand (new, list, attach, suspend, close, rename, prune, peek, kill, nudge, logs, wake)") //nolint:errcheck // best-effort stderr
+				fmt.Fprintln(stderr, "gc session: missing subcommand (new, list, attach, suspend, close, rename, prune, peek, kill, nudge, logs, wake, wait)") //nolint:errcheck // best-effort stderr
 			} else {
 				fmt.Fprintf(stderr, "gc session: unknown subcommand %q\n", args[0]) //nolint:errcheck // best-effort stderr
 			}
@@ -59,6 +59,7 @@ continuity.`,
 		newSessionNudgeCmd(stdout, stderr),
 		newSessionLogsCmd(stdout, stderr),
 		newSessionWakeCmd(stdout, stderr),
+		newSessionWaitCmd(stdout, stderr),
 	)
 	return cmd
 }
@@ -310,6 +311,7 @@ func cmdSessionList(stateFilter, templateFilter string, jsonOutput bool, stdout,
 			beadIndex[b.ID] = b
 		}
 	}
+	readyWaitSet := readyWaitSetForList(store)
 
 	// Load config for wake reason computation (best-effort).
 	// Only WakeConfig reason needs config; sleep/hold/quarantine come from beads.
@@ -334,7 +336,7 @@ func cmdSessionList(stateFilter, templateFilter string, jsonOutput bool, stdout,
 		if s.State == "" {
 			state = "closed"
 		}
-		reason := sessionReason(s, beadIndex, cfg, sp, poolDesired)
+		reason := sessionReason(s, beadIndex, cfg, sp, poolDesired, readyWaitSet)
 		title := s.Title
 		if title == "" {
 			title = "-"
@@ -357,7 +359,7 @@ func cmdSessionList(stateFilter, templateFilter string, jsonOutput bool, stdout,
 // For awake sessions, shows wake reasons (e.g., "config", "attached").
 // For asleep sessions, shows the sleep reason (e.g., "user-hold", "quarantine").
 // For closed sessions, shows "-".
-func sessionReason(s session.Info, beadIndex map[string]beads.Bead, cfg *config.City, sp runtime.Provider, poolDesired map[string]int) string {
+func sessionReason(s session.Info, beadIndex map[string]beads.Bead, cfg *config.City, sp runtime.Provider, poolDesired map[string]int, readyWaitSet map[string]bool) string {
 	if s.State == "" {
 		return "-" // closed
 	}
@@ -370,7 +372,7 @@ func sessionReason(s session.Info, beadIndex map[string]beads.Bead, cfg *config.
 	// If config is available, compute full wake reasons (including WakeConfig).
 	// Otherwise, only bead metadata (sleep/hold/quarantine) is shown.
 	if cfg != nil {
-		reasons := wakeReasons(b, cfg, sp, poolDesired, nil, clock.Real{})
+		reasons := wakeReasons(b, cfg, sp, poolDesired, nil, readyWaitSet, clock.Real{})
 		if len(reasons) > 0 {
 			parts := make([]string, len(reasons))
 			for i, r := range reasons {
@@ -387,10 +389,31 @@ func sessionReason(s session.Info, beadIndex map[string]beads.Bead, cfg *config.
 	if b.Metadata["quarantined_until"] != "" {
 		return "quarantine"
 	}
+	if b.Metadata["wait_hold"] != "" {
+		return "wait-hold"
+	}
 	if b.Metadata["held_until"] != "" {
 		return "user-hold"
 	}
 	return "-"
+}
+
+func readyWaitSetForList(store beads.Store) map[string]bool {
+	items, err := loadWaitBeads(store)
+	if err != nil {
+		return nil
+	}
+	ready := make(map[string]bool)
+	for _, item := range items {
+		if item.Metadata["state"] != waitStateReady {
+			continue
+		}
+		sessionID := item.Metadata["session_id"]
+		if sessionID != "" {
+			ready[sessionID] = true
+		}
+	}
+	return ready
 }
 
 // cliPoolDesired computes a static pool desired count from config.
@@ -567,8 +590,9 @@ func cmdSessionSuspend(args []string, stdout, stderr io.Writer) int {
 			// Set held_until far in the future so the reconciler drains/stops the session.
 			heldUntil := time.Now().Add(indefiniteHoldDuration).UTC().Format(time.RFC3339)
 			if err := store.SetMetadataBatch(sessionID, map[string]string{
-				"held_until": heldUntil,
-				"state":      "suspended",
+				"held_until":   heldUntil,
+				"sleep_intent": "user-hold",
+				"state":        "suspended",
 			}); err != nil {
 				fmt.Fprintf(stderr, "gc session suspend: %v\n", err) //nolint:errcheck // best-effort stderr
 				return 1
@@ -626,10 +650,20 @@ func cmdSessionClose(args []string, stdout, stderr io.Writer) int {
 
 	sp := newSessionProvider()
 	mgr := newSessionManager(store, sp)
+	nudgeIDs, err := waitNudgeIDsForSession(store, sessionID)
+	if err != nil {
+		fmt.Fprintf(stderr, "gc session close: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
 
 	if err := mgr.Close(sessionID); err != nil {
 		fmt.Fprintf(stderr, "gc session close: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
+	}
+	if cityPath, err := resolveCity(); err == nil {
+		if err := withdrawQueuedWaitNudges(cityPath, nudgeIDs); err != nil {
+			fmt.Fprintf(stderr, "gc session close: warning: withdrawing queued wait nudges: %v\n", err) //nolint:errcheck // best-effort stderr
+		}
 	}
 
 	fmt.Fprintf(stdout, "Session %s closed.\n", sessionID) //nolint:errcheck // best-effort stdout
@@ -717,16 +751,21 @@ func cmdSessionPrune(beforeStr string, stdout, stderr io.Writer) int {
 	mgr := newSessionManager(store, sp)
 
 	cutoff := time.Now().Add(-dur)
-	pruned, err := mgr.Prune(cutoff)
+	result, err := mgr.PruneDetailed(cutoff)
 	if err != nil {
 		fmt.Fprintf(stderr, "gc session prune: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
 	}
+	if cityPath, err := resolveCity(); err == nil {
+		if err := withdrawQueuedWaitNudges(cityPath, result.WaitNudgeIDs); err != nil {
+			fmt.Fprintf(stderr, "gc session prune: warning: withdrawing queued wait nudges: %v\n", err) //nolint:errcheck // best-effort stderr
+		}
+	}
 
-	if pruned == 0 {
+	if result.Count == 0 {
 		fmt.Fprintln(stdout, "No sessions to prune.") //nolint:errcheck // best-effort stdout
 	} else {
-		fmt.Fprintf(stdout, "Pruned %d session(s).\n", pruned) //nolint:errcheck // best-effort stdout
+		fmt.Fprintf(stdout, "Pruned %d session(s).\n", result.Count) //nolint:errcheck // best-effort stdout
 	}
 	return 0
 }
@@ -908,11 +947,6 @@ func cmdSessionNudge(args []string, delivery nudgeDeliveryMode, stdout, stderr i
 		return 1
 	}
 
-	cityName := cfg.Workspace.Name
-	if cityName == "" {
-		cityName = filepath.Base(cityPath)
-	}
-
 	target := args[0]
 	message := strings.Join(args[1:], " ")
 
@@ -923,18 +957,10 @@ func cmdSessionNudge(args []string, delivery nudgeDeliveryMode, stdout, stderr i
 		return 1
 	}
 
-	resolved, err := config.ResolveProvider(&found, &cfg.Workspace, cfg.Providers, exec.LookPath)
+	targetInfo, err := resolveNudgeTarget(found.QualifiedName())
 	if err != nil {
 		fmt.Fprintf(stderr, "gc session nudge: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
-	}
-	targetInfo := nudgeTarget{
-		cityPath:    cityPath,
-		cityName:    cityName,
-		cfg:         cfg,
-		agent:       found,
-		resolved:    resolved,
-		sessionName: cliSessionName(cityPath, cityName, found.QualifiedName(), cfg.Workspace.SessionTemplate),
 	}
 	return deliverSessionNudge(targetInfo, message, delivery, stdout, stderr)
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/gastownhall/gascity/internal/session"
 	"github.com/spf13/cobra"
@@ -59,21 +60,15 @@ func cmdSessionWake(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// Clear hold, quarantine, and wake failures in one batch.
-	batch := map[string]string{
-		"held_until":        "",
-		"quarantined_until": "",
-		"wake_attempts":     "0",
-	}
-	// Clear sleep_reason if it was set by hold or quarantine.
-	sr := b.Metadata["sleep_reason"]
-	if sr == "user-hold" || sr == "quarantine" {
-		batch["sleep_reason"] = ""
-	}
-
-	if err := store.SetMetadataBatch(id, batch); err != nil {
+	nudgeIDs, err := session.WakeSession(store, b, time.Now().UTC())
+	if err != nil {
 		fmt.Fprintf(stderr, "gc session wake: updating metadata: %v\n", err) //nolint:errcheck
 		return 1
+	}
+	if cityPath, err := resolveCity(); err == nil {
+		if err := withdrawQueuedWaitNudges(cityPath, nudgeIDs); err != nil {
+			fmt.Fprintf(stderr, "gc session wake: warning: withdrawing queued wait nudges: %v\n", err) //nolint:errcheck
+		}
 	}
 
 	fmt.Fprintf(stdout, "Session %s: hold and quarantine cleared.\n", id) //nolint:errcheck

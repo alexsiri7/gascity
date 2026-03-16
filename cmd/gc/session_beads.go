@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"strconv"
@@ -211,14 +209,15 @@ func syncSessionBeads(
 		if !exists {
 			// Create a new session bead.
 			meta := map[string]string{
-				"session_name":   sn,
-				"agent_name":     agentName,
-				"config_hash":    coreHash,
-				"live_hash":      liveHash,
-				"generation":     "1",
-				"instance_token": generateToken(),
-				"state":          state,
-				"synced_at":      now.Format("2006-01-02T15:04:05Z07:00"),
+				"session_name":       sn,
+				"agent_name":         agentName,
+				"config_hash":        coreHash,
+				"live_hash":          liveHash,
+				"generation":         strconv.Itoa(session.DefaultGeneration),
+				"continuation_epoch": strconv.Itoa(session.DefaultContinuationEpoch),
+				"instance_token":     session.NewInstanceToken(),
+				"state":              state,
+				"synced_at":          now.Format("2006-01-02T15:04:05Z07:00"),
 			}
 			// Generate session_key for providers that support --session-id.
 			// Without this, transcript lookup falls back to workdir-based
@@ -230,6 +229,9 @@ func syncSessionBeads(
 			}
 			if tp.WorkDir != "" {
 				meta["work_dir"] = tp.WorkDir
+			}
+			if tp.WakeMode != "" && tp.WakeMode != "resume" {
+				meta["wake_mode"] = tp.WakeMode
 			}
 			// Store the qualified template name so the API can derive the
 			// rig from it (e.g., "tower-of-hanoi/polecat" not just "polecat").
@@ -301,12 +303,22 @@ func syncSessionBeads(
 				b.Metadata["work_dir"] = tp.WorkDir
 			}
 		}
+		if b.Metadata["wake_mode"] != tp.WakeMode {
+			if setMeta(store, b.ID, "wake_mode", tp.WakeMode, stderr) == nil {
+				b.Metadata["wake_mode"] = tp.WakeMode
+			}
+		}
 		// Backfill session_key for beads created before this fix.
 		if b.Metadata["session_key"] == "" && tp.ResolvedProvider != nil && tp.ResolvedProvider.SessionIDFlag != "" {
 			if key, err := session.GenerateSessionKey(); err == nil {
 				if setMeta(store, b.ID, "session_key", key, stderr) == nil {
 					b.Metadata["session_key"] = key
 				}
+			}
+		}
+		if b.Metadata["continuation_epoch"] == "" {
+			if setMeta(store, b.ID, "continuation_epoch", strconv.Itoa(session.DefaultContinuationEpoch), stderr) == nil {
+				b.Metadata["continuation_epoch"] = strconv.Itoa(session.DefaultContinuationEpoch)
 			}
 		}
 		// Backfill command and resume fields for beads created before
@@ -509,14 +521,4 @@ func resolvePoolSlot(agentName, template string) int {
 	suffix := agentName[len(template)+1:]
 	slot, _ := strconv.Atoi(suffix)
 	return slot
-}
-
-// generateToken returns a cryptographically random hex token.
-// Panics on crypto/rand failure (standard Go pattern — indicates broken system).
-func generateToken() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("session beads: crypto/rand failed: " + err.Error())
-	}
-	return hex.EncodeToString(b)
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gastownhall/gascity/internal/beads"
+	"github.com/gastownhall/gascity/internal/citylayout"
 	"github.com/gastownhall/gascity/internal/runtime"
 	"github.com/gastownhall/gascity/internal/session"
 	"github.com/gastownhall/gascity/internal/sessionlog"
@@ -32,6 +33,68 @@ func createTestSession(t *testing.T, store beads.Store, sp *runtime.Fake, title 
 		t.Fatalf("create session: %v", err)
 	}
 	return info
+}
+
+func seedQueuedWaitNudge(t *testing.T, fs *fakeState, wait beads.Bead, agentName string) string {
+	t.Helper()
+	nudgeID := "wait-" + wait.ID
+	if err := fs.cityBeadStore.SetMetadataBatch(wait.ID, map[string]string{"nudge_id": nudgeID}); err != nil {
+		t.Fatalf("set wait nudge_id: %v", err)
+	}
+	if _, err := fs.cityBeadStore.Create(beads.Bead{
+		Type:   "nudge",
+		Title:  "nudge:" + nudgeID,
+		Labels: []string{"nudge:" + nudgeID},
+		Metadata: map[string]string{
+			"nudge_id": nudgeID,
+			"state":    "queued",
+		},
+	}); err != nil {
+		t.Fatalf("create nudge bead: %v", err)
+	}
+	statePath := citylayout.RuntimePath(fs.cityPath, "nudges", "state.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("create nudge queue dir: %v", err)
+	}
+	data, err := json.MarshalIndent(map[string]any{
+		"pending": []map[string]any{{
+			"id":    nudgeID,
+			"agent": agentName,
+		}},
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal nudge queue: %v", err)
+	}
+	if err := os.WriteFile(statePath, append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("seed nudge queue: %v", err)
+	}
+	return nudgeID
+}
+
+func loadQueuedWaitNudgeState(t *testing.T, cityPath string) struct {
+	Pending  []map[string]any `json:"pending,omitempty"`
+	InFlight []map[string]any `json:"in_flight,omitempty"`
+} {
+	t.Helper()
+	statePath := citylayout.RuntimePath(cityPath, "nudges", "state.json")
+	data, err := os.ReadFile(statePath)
+	if os.IsNotExist(err) {
+		return struct {
+			Pending  []map[string]any `json:"pending,omitempty"`
+			InFlight []map[string]any `json:"in_flight,omitempty"`
+		}{}
+	}
+	if err != nil {
+		t.Fatalf("read nudge queue: %v", err)
+	}
+	var state struct {
+		Pending  []map[string]any `json:"pending,omitempty"`
+		InFlight []map[string]any `json:"in_flight,omitempty"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("parse nudge queue: %v", err)
+	}
+	return state
 }
 
 func writeNamedSessionJSONL(t *testing.T, searchBase, workDir, fileName string, lines ...string) {
@@ -244,6 +307,18 @@ func TestHandleSessionClose(t *testing.T) {
 	srv := New(fs)
 
 	info := createTestSession(t, fs.cityBeadStore, fs.sp, "To Close")
+	wait, err := fs.cityBeadStore.Create(beads.Bead{
+		Type:   session.WaitBeadType,
+		Labels: []string{session.WaitBeadLabel, "session:" + info.ID},
+		Metadata: map[string]string{
+			"session_id": info.ID,
+			"state":      "pending",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create wait: %v", err)
+	}
+	nudgeID := seedQueuedWaitNudge(t, fs, wait, "default")
 
 	w := httptest.NewRecorder()
 	r := newPostRequest("/v0/session/"+info.ID+"/close", nil)
@@ -261,6 +336,96 @@ func TestHandleSessionClose(t *testing.T) {
 	}
 	if len(sessions) != 0 {
 		t.Errorf("got %d sessions after close, want 0", len(sessions))
+	}
+	wait, err = fs.cityBeadStore.Get(wait.ID)
+	if err != nil {
+		t.Fatalf("get wait: %v", err)
+	}
+	if wait.Metadata["state"] != "canceled" {
+		t.Fatalf("wait state = %q, want canceled", wait.Metadata["state"])
+	}
+	state := loadQueuedWaitNudgeState(t, fs.cityPath)
+	for _, item := range append(state.Pending, state.InFlight...) {
+		if got, _ := item["id"].(string); got == nudgeID {
+			t.Fatalf("nudge %q still queued after close", nudgeID)
+		}
+	}
+	items, err := fs.cityBeadStore.ListByLabel("nudge:"+nudgeID, 0)
+	if err != nil {
+		t.Fatalf("ListByLabel(nudge): %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("nudge bead count = %d, want 1", len(items))
+	}
+	if items[0].Status != "closed" {
+		t.Fatalf("nudge status = %q, want closed", items[0].Status)
+	}
+	if items[0].Metadata["terminal_reason"] != "wait-canceled" {
+		t.Fatalf("nudge terminal_reason = %q, want wait-canceled", items[0].Metadata["terminal_reason"])
+	}
+}
+
+func TestHandleSessionWake_DoesNotRewriteHistoricalWaitNudge(t *testing.T) {
+	fs := newSessionFakeState(t)
+	srv := New(fs)
+
+	info := createTestSession(t, fs.cityBeadStore, fs.sp, "Historical Wait")
+	wait, err := fs.cityBeadStore.Create(beads.Bead{
+		Type:   session.WaitBeadType,
+		Labels: []string{session.WaitBeadLabel, "session:" + info.ID},
+		Metadata: map[string]string{
+			"session_id": info.ID,
+			"state":      "closed",
+			"nudge_id":   "wait-historical",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create wait: %v", err)
+	}
+	if err := fs.cityBeadStore.Close(wait.ID); err != nil {
+		t.Fatalf("close wait: %v", err)
+	}
+	nudge, err := fs.cityBeadStore.Create(beads.Bead{
+		Type:   "nudge",
+		Title:  "nudge:wait-historical",
+		Labels: []string{"nudge:wait-historical"},
+		Metadata: map[string]string{
+			"nudge_id":        "wait-historical",
+			"state":           "injected",
+			"commit_boundary": "provider-nudge-return",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create nudge bead: %v", err)
+	}
+	if err := fs.cityBeadStore.Close(nudge.ID); err != nil {
+		t.Fatalf("close nudge bead: %v", err)
+	}
+	_ = fs.cityBeadStore.SetMetadataBatch(info.ID, map[string]string{
+		"wait_hold":    "true",
+		"sleep_intent": "wait-hold",
+		"sleep_reason": "wait-hold",
+	})
+
+	w := httptest.NewRecorder()
+	r := newPostRequest("/v0/session/"+info.ID+"/wake", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("got status %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	updated, err := fs.cityBeadStore.Get(nudge.ID)
+	if err != nil {
+		t.Fatalf("get nudge: %v", err)
+	}
+	if updated.Metadata["state"] != "injected" {
+		t.Fatalf("nudge state = %q, want injected", updated.Metadata["state"])
+	}
+	if updated.Metadata["terminal_reason"] != "" {
+		t.Fatalf("nudge terminal_reason = %q, want empty", updated.Metadata["terminal_reason"])
+	}
+	if updated.Metadata["commit_boundary"] != "provider-nudge-return" {
+		t.Fatalf("nudge commit_boundary = %q, want provider-nudge-return", updated.Metadata["commit_boundary"])
 	}
 }
 
@@ -282,11 +447,25 @@ func TestHandleSessionWake(t *testing.T) {
 	srv := New(fs)
 
 	info := createTestSession(t, fs.cityBeadStore, fs.sp, "Held Session")
+	wait, err := fs.cityBeadStore.Create(beads.Bead{
+		Type:   session.WaitBeadType,
+		Labels: []string{session.WaitBeadLabel, "session:" + info.ID},
+		Metadata: map[string]string{
+			"session_id": info.ID,
+			"state":      "pending",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create wait: %v", err)
+	}
+	nudgeID := seedQueuedWaitNudge(t, fs, wait, "default")
 
 	// Set hold metadata.
 	_ = fs.cityBeadStore.SetMetadataBatch(info.ID, map[string]string{
 		"held_until":   "9999-12-31T23:59:59Z",
-		"sleep_reason": "user-hold",
+		"wait_hold":    "true",
+		"sleep_intent": "wait-hold",
+		"sleep_reason": "wait-hold",
 	})
 
 	w := httptest.NewRecorder()
@@ -302,8 +481,40 @@ func TestHandleSessionWake(t *testing.T) {
 	if b.Metadata["held_until"] != "" {
 		t.Errorf("held_until should be cleared, got %q", b.Metadata["held_until"])
 	}
+	if b.Metadata["wait_hold"] != "" {
+		t.Errorf("wait_hold should be cleared, got %q", b.Metadata["wait_hold"])
+	}
+	if b.Metadata["sleep_intent"] != "" {
+		t.Errorf("sleep_intent should be cleared, got %q", b.Metadata["sleep_intent"])
+	}
 	if b.Metadata["sleep_reason"] != "" {
 		t.Errorf("sleep_reason should be cleared, got %q", b.Metadata["sleep_reason"])
+	}
+	wait, err = fs.cityBeadStore.Get(wait.ID)
+	if err != nil {
+		t.Fatalf("get wait: %v", err)
+	}
+	if wait.Metadata["state"] != "canceled" {
+		t.Fatalf("wait state = %q, want canceled", wait.Metadata["state"])
+	}
+	state := loadQueuedWaitNudgeState(t, fs.cityPath)
+	for _, item := range append(state.Pending, state.InFlight...) {
+		if got, _ := item["id"].(string); got == nudgeID {
+			t.Fatalf("nudge %q still queued after wake", nudgeID)
+		}
+	}
+	items, err := fs.cityBeadStore.ListByLabel("nudge:"+nudgeID, 0)
+	if err != nil {
+		t.Fatalf("ListByLabel(nudge): %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("nudge bead count = %d, want 1", len(items))
+	}
+	if items[0].Status != "closed" {
+		t.Fatalf("nudge status = %q, want closed", items[0].Status)
+	}
+	if items[0].Metadata["terminal_reason"] != "wait-canceled" {
+		t.Fatalf("nudge terminal_reason = %q, want wait-canceled", items[0].Metadata["terminal_reason"])
 	}
 }
 

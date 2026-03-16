@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -93,11 +94,14 @@ func sessionResponseWithReason(info session.Info, b *beads.Bead, cfg *config.Cit
 		r.Kind = k
 	}
 	// Surface bead-persisted sleep/hold/quarantine reason.
-	if sr := b.Metadata["sleep_reason"]; sr != "" {
-		r.Reason = sr
-	} else if b.Metadata["quarantined_until"] != "" {
+	switch {
+	case b.Metadata["sleep_reason"] != "":
+		r.Reason = b.Metadata["sleep_reason"]
+	case b.Metadata["quarantined_until"] != "":
 		r.Reason = "quarantine"
-	} else if b.Metadata["held_until"] != "" {
+	case b.Metadata["wait_hold"] != "":
+		r.Reason = "wait-hold"
+	case b.Metadata["held_until"] != "":
 		r.Reason = "user-hold"
 	}
 	// Expose only mc_* prefixed metadata keys to API consumers.
@@ -247,9 +251,17 @@ func (s *Server) handleSessionClose(w http.ResponseWriter, r *http.Request) {
 		writeResolveError(w, err)
 		return
 	}
+	nudgeIDs, err := session.WaitNudgeIDs(store, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	if err := mgr.Close(id); err != nil {
 		writeSessionManagerError(w, err)
 		return
+	}
+	if err := withdrawQueuedWaitNudges(store, s.state.CityPath(), nudgeIDs); err != nil {
+		log.Printf("gc api: withdrawing queued wait nudges after close %s: %v", id, err)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -282,21 +294,14 @@ func (s *Server) handleSessionWake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	batch := map[string]string{
-		"held_until":        "",
-		"quarantined_until": "",
-		"wake_attempts":     "0",
-	}
-	sr := b.Metadata["sleep_reason"]
-	if sr == "user-hold" || sr == "quarantine" {
-		batch["sleep_reason"] = ""
-	}
-
-	if err := store.SetMetadataBatch(id, batch); err != nil {
+	nudgeIDs, err := session.WakeSession(store, b, time.Now().UTC())
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-
+	if err := withdrawQueuedWaitNudges(store, s.state.CityPath(), nudgeIDs); err != nil {
+		log.Printf("gc api: withdrawing queued wait nudges after wake %s: %v", id, err)
+	}
 	// Clear in-memory crash tracker so the reconciler doesn't immediately
 	// re-quarantine the session based on stale crash history.
 	sessionName := b.Metadata["session_name"]

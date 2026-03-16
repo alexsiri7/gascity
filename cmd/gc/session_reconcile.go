@@ -19,6 +19,7 @@ import (
 // PURE FUNCTION — reads only, never writes metadata.
 // poolDesired is the per-tick snapshot from pool evaluation.
 // workSet is the per-tick snapshot of templates with assigned open work.
+// readyWaitSet contains session bead IDs with a durable ready wait.
 // Returns nil if the session should be asleep.
 func wakeReasons(
 	session beads.Bead,
@@ -26,6 +27,7 @@ func wakeReasons(
 	sp runtime.Provider,
 	poolDesired map[string]int,
 	workSet map[string]bool,
+	readyWaitSet map[string]bool,
 	clk clock.Clock,
 ) []WakeReason {
 	// User hold suppresses all reasons.
@@ -45,18 +47,25 @@ func wakeReasons(
 	}
 
 	var reasons []WakeReason
+	waitHold := session.Metadata["wait_hold"] != ""
+
+	if readyWaitSet != nil && readyWaitSet[session.ID] {
+		reasons = append(reasons, WakeWait)
+	}
 
 	// Config presence — per-instance for pools.
 	template := session.Metadata["template"]
-	if agent := findAgentByTemplate(cfg, template); agent != nil {
-		if agent.Pool == nil {
-			reasons = append(reasons, WakeConfig)
-		} else {
-			// Pool: only wake if slot is within desired count.
-			slot, _ := strconv.Atoi(session.Metadata["pool_slot"])
-			desired := poolDesired[template]
-			if slot > 0 && slot <= desired {
+	if !waitHold {
+		if agent := findAgentByTemplate(cfg, template); agent != nil {
+			if agent.Pool == nil {
 				reasons = append(reasons, WakeConfig)
+			} else {
+				// Pool: only wake if slot is within desired count.
+				slot, _ := strconv.Atoi(session.Metadata["pool_slot"])
+				desired := poolDesired[template]
+				if slot > 0 && slot <= desired {
+					reasons = append(reasons, WakeConfig)
+				}
 			}
 		}
 	}
@@ -65,7 +74,7 @@ func wakeReasons(
 	// No provider-level gate — composite providers (auto/hybrid) route
 	// IsAttached per-session to the correct backend, which returns false
 	// safely for backends that don't support attachment detection.
-	if sp != nil {
+	if !waitHold && sp != nil {
 		name := session.Metadata["session_name"]
 		if name != "" && sp.IsAttached(name) {
 			reasons = append(reasons, WakeAttached)
@@ -75,7 +84,7 @@ func wakeReasons(
 	// WakeWork: session has open work assigned to its template.
 	// For pool agents, apply the same slot/desired gate as WakeConfig
 	// so excess pool instances aren't woken by pending work.
-	if workSet[template] {
+	if !waitHold && workSet[template] {
 		if agent := findAgentByTemplate(cfg, template); agent != nil && agent.Pool != nil {
 			slot, _ := strconv.Atoi(session.Metadata["pool_slot"])
 			desired := poolDesired[template]
@@ -221,8 +230,12 @@ func recordWakeFailure(session *beads.Bead, store beads.Store, clk clock.Clock) 
 	// Prevents crash loops when the key references a conversation that
 	// no longer exists (e.g., deleted, or aimux account rotation).
 	if session.Metadata["session_key"] != "" {
-		_ = store.SetMetadata(session.ID, "session_key", "")
+		_ = store.SetMetadataBatch(session.ID, map[string]string{
+			"session_key":                "",
+			"continuation_reset_pending": "true",
+		})
 		session.Metadata["session_key"] = ""
+		session.Metadata["continuation_reset_pending"] = "true"
 	}
 	if attempts >= defaultMaxWakeAttempts {
 		qUntil := clk.Now().Add(defaultQuarantineDuration).UTC().Format(time.RFC3339)

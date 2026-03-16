@@ -108,7 +108,7 @@ func (e *reconcilerTestEnv) reconcile(sessions []beads.Bead) int {
 	cfgNames := configuredSessionNames(e.cfg, "", e.store)
 	return reconcileSessionBeads(
 		context.Background(), sessions, e.desiredState, cfgNames, e.cfg, e.sp,
-		e.store, nil, e.dt, map[string]int{}, "",
+		e.store, nil, nil, e.dt, map[string]int{}, "",
 		e.clk, e.rec, 0, 0, &e.stdout, &e.stderr,
 	)
 }
@@ -599,6 +599,26 @@ func TestReconcileSessionBeads_CancelsDrainOnWakeReason(t *testing.T) {
 	}
 }
 
+func TestReconcileSessionBeads_UsesSleepIntentForDrainReason(t *testing.T) {
+	env := newReconcilerTestEnv()
+	env.cfg = &config.City{}
+	env.addDesired("worker", "worker", true)
+	_ = env.sp.Start(context.Background(), "worker", runtime.Config{})
+	session := env.createSessionBead("worker", "worker")
+	_ = env.store.SetMetadata(session.ID, "sleep_intent", "wait-hold")
+	session.Metadata["sleep_intent"] = "wait-hold"
+
+	env.reconcile([]beads.Bead{session})
+
+	ds := env.dt.get(session.ID)
+	if ds == nil {
+		t.Fatal("expected drain when desired session has no wake reason")
+	}
+	if ds.reason != "wait-hold" {
+		t.Fatalf("drain reason = %q, want wait-hold", ds.reason)
+	}
+}
+
 func TestReconcileSessionBeads_StartFailureNoDoubleCounting(t *testing.T) {
 	env := newReconcilerTestEnv()
 	env.cfg = &config.City{Agents: []config.Agent{{Name: "worker"}}}
@@ -644,7 +664,7 @@ func TestReconcileSessionBeads_PoolScaleDownOrphansExcess(t *testing.T) {
 	cfgNames := configuredSessionNames(env.cfg, "", env.store)
 	reconcileSessionBeads(
 		context.Background(), []beads.Bead{s1, s2}, env.desiredState, cfgNames,
-		env.cfg, env.sp, env.store, nil, env.dt, poolDesired, "",
+		env.cfg, env.sp, env.store, nil, nil, env.dt, poolDesired, "",
 		env.clk, env.rec, 0, 0, &env.stdout, &env.stderr,
 	)
 
@@ -713,7 +733,7 @@ func TestReconcileSessionBeads_DriftDrainUsesConfigTimeout(t *testing.T) {
 	cfgNames := configuredSessionNames(env.cfg, "", env.store)
 	reconcileSessionBeads(
 		context.Background(), []beads.Bead{session}, env.desiredState, cfgNames,
-		env.cfg, env.sp, env.store, nil, env.dt, map[string]int{}, "",
+		env.cfg, env.sp, env.store, nil, nil, env.dt, map[string]int{}, "",
 		env.clk, env.rec, 0, env.cfg.Daemon.DriftDrainTimeoutDuration(),
 		&env.stdout, &env.stderr,
 	)

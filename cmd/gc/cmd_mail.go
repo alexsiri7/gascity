@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -460,26 +458,14 @@ func cmdMailSend(args []string, notify bool, all bool, from string, to string, s
 
 	var nf nudgeFunc
 	if notify && cfg != nil {
-		cityName := cfg.Workspace.Name
-		if cityName == "" {
-			cityName = filepath.Base(cityPath)
-		}
 		nf = func(recipient string) error {
 			found, ok := resolveAgentIdentity(cfg, recipient, currentRigContext(cfg))
 			if !ok {
 				return fmt.Errorf("agent %q not found", recipient)
 			}
-			resolved, err := config.ResolveProvider(&found, &cfg.Workspace, cfg.Providers, exec.LookPath)
+			target, err := resolveNudgeTarget(found.QualifiedName())
 			if err != nil {
 				return err
-			}
-			target := nudgeTarget{
-				cityPath:    cityPath,
-				cityName:    cityName,
-				cfg:         cfg,
-				agent:       found,
-				resolved:    resolved,
-				sessionName: cliSessionName(cityPath, cityName, found.QualifiedName(), cfg.Workspace.SessionTemplate),
 			}
 			return sendMailNotify(target, sender)
 		}

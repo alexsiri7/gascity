@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gastownhall/gascity/internal/beads"
@@ -23,6 +25,7 @@ func TestCityRuntimeReloadProviderSwapRestoresBeadReconcileOps(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 	sp := runtime.NewFake()
+	var stdout bytes.Buffer
 	cr := newCityRuntime(CityRuntimeParams{
 		CityPath: cityPath,
 		CityName: "test-city",
@@ -34,7 +37,7 @@ func TestCityRuntimeReloadProviderSwapRestoresBeadReconcileOps(t *testing.T) {
 		},
 		Dops:   newDrainOps(sp),
 		Rec:    events.Discard,
-		Stdout: io.Discard,
+		Stdout: &stdout,
 		Stderr: io.Discard,
 	})
 
@@ -55,6 +58,12 @@ func TestCityRuntimeReloadProviderSwapRestoresBeadReconcileOps(t *testing.T) {
 	}
 	if _, ok := cr.rops.(*beadReconcileOps); !ok {
 		t.Fatalf("rops after provider swap = %T, want *beadReconcileOps", cr.rops)
+	}
+	if cr.sessionDrains == nil {
+		t.Fatal("sessionDrains = nil, want default-on bead reconciler to enable drain tracker")
+	}
+	if !strings.Contains(stdout.String(), "set daemon.bead_reconciler=false to use legacy") {
+		t.Fatalf("stdout = %q, want default-on bead_reconciler note", stdout.String())
 	}
 }
 

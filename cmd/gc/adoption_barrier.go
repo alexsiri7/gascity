@@ -10,6 +10,7 @@ import (
 	"github.com/gastownhall/gascity/internal/clock"
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/runtime"
+	sessionpkg "github.com/gastownhall/gascity/internal/session"
 )
 
 // adoptionResult holds the outcome of an adoption barrier run.
@@ -132,10 +133,12 @@ func runAdoptionBarrier(
 		// Build bead metadata. Config/live hashes are left empty —
 		// syncSessionBeads populates them from built agent objects.
 		meta := map[string]string{
-			"session_name": sessionName,
-			"state":        "active",
-			"generation":   "1",
-			"synced_at":    now.Format("2006-01-02T15:04:05Z07:00"),
+			"session_name":       sessionName,
+			"state":              "active",
+			"generation":         strconv.Itoa(sessionpkg.DefaultGeneration),
+			"continuation_epoch": strconv.Itoa(sessionpkg.DefaultContinuationEpoch),
+			"instance_token":     sessionpkg.NewInstanceToken(),
+			"synced_at":          now.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
 		detail := adoptionDetail{SessionName: sessionName}

@@ -59,6 +59,9 @@ func TestSyncSessionBeads_CreatesNewBeads(t *testing.T) {
 	if b.Metadata["generation"] != "1" {
 		t.Errorf("generation = %q, want %q", b.Metadata["generation"], "1")
 	}
+	if b.Metadata["continuation_epoch"] != "1" {
+		t.Errorf("continuation_epoch = %q, want %q", b.Metadata["continuation_epoch"], "1")
+	}
 	if b.Metadata["instance_token"] == "" {
 		t.Error("instance_token is empty")
 	}
@@ -84,6 +87,7 @@ func TestSyncSessionBeads_Idempotent(t *testing.T) {
 	all, _ := store.ListByLabel(sessionBeadLabel, 0)
 	token1 := all[0].Metadata["instance_token"]
 	gen1 := all[0].Metadata["generation"]
+	epoch1 := all[0].Metadata["continuation_epoch"]
 
 	// Run again — should be idempotent.
 	clk.Advance(5 * time.Second)
@@ -100,6 +104,42 @@ func TestSyncSessionBeads_Idempotent(t *testing.T) {
 	}
 	if all[0].Metadata["generation"] != gen1 {
 		t.Error("generation changed on idempotent re-sync")
+	}
+	if all[0].Metadata["continuation_epoch"] != epoch1 {
+		t.Error("continuation_epoch changed on idempotent re-sync")
+	}
+}
+
+func TestSyncSessionBeads_SyncsWakeMode(t *testing.T) {
+	store := beads.NewMemStore()
+	clk := &clock.Fake{Time: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}
+	sp := runtime.NewFake()
+
+	ds := map[string]TemplateParams{
+		"mayor": {TemplateName: "mayor", Command: "claude", WakeMode: "fresh"},
+	}
+
+	var stderr bytes.Buffer
+	syncSessionBeads(store, ds, sp, allConfiguredDS(ds), nil, clk, &stderr, false)
+
+	all, err := store.ListByLabel(sessionBeadLabel, 0)
+	if err != nil {
+		t.Fatalf("listing beads: %v", err)
+	}
+	if got := all[0].Metadata["wake_mode"]; got != "fresh" {
+		t.Fatalf("wake_mode = %q, want fresh", got)
+	}
+
+	ds["mayor"] = TemplateParams{TemplateName: "mayor", Command: "claude"}
+	clk.Advance(5 * time.Second)
+	syncSessionBeads(store, ds, sp, allConfiguredDS(ds), nil, clk, &stderr, false)
+
+	all, err = store.ListByLabel(sessionBeadLabel, 0)
+	if err != nil {
+		t.Fatalf("listing beads after clear: %v", err)
+	}
+	if got := all[0].Metadata["wake_mode"]; got != "" {
+		t.Fatalf("wake_mode = %q, want empty after revert to resume", got)
 	}
 }
 

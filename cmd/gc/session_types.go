@@ -16,6 +16,8 @@ const (
 	WakeConfig WakeReason = "config"
 	// WakeAttached means a user terminal is connected to the session.
 	WakeAttached WakeReason = "attached"
+	// WakeWait means a durable wait is ready for this session continuation.
+	WakeWait WakeReason = "wait"
 	// WakeWork means the session has hooked/open beads (Phase 4).
 	WakeWork WakeReason = "work"
 )

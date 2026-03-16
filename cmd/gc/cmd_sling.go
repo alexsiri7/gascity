@@ -838,8 +838,8 @@ func doSlingNudge(a *config.Agent, cityName, cityPath string, cfg *config.City,
 					fmt.Fprintf(stderr, "gc sling: agent %q not found in config\n", qn) //nolint:errcheck // best-effort
 					return
 				}
-				target := buildSlingNudgeTarget(member, cityName, cityPath, cfg, sn)
-				deliverSlingNudge(target, sp, cityPath, stdout, stderr)
+				target := buildSlingNudgeTarget(member, cityName, cityPath, cfg, store, sn)
+				deliverSlingNudge(target, sp, store, cityPath, stdout, stderr)
 				return
 			}
 		}
@@ -854,8 +854,8 @@ func doSlingNudge(a *config.Agent, cityName, cityPath string, cfg *config.City,
 
 	// Fixed agent: nudge directly.
 	sn := lookupSessionNameOrLegacy(store, cityName, a.QualifiedName(), st)
-	target := buildSlingNudgeTarget(*a, cityName, cityPath, cfg, sn)
-	deliverSlingNudge(target, sp, cityPath, stdout, stderr)
+	target := buildSlingNudgeTarget(*a, cityName, cityPath, cfg, store, sn)
+	deliverSlingNudge(target, sp, store, cityPath, stdout, stderr)
 }
 
 // pokeController sends a "poke" command to the controller socket to
@@ -866,19 +866,19 @@ func pokeController(cityPath string) error {
 	return err
 }
 
-func buildSlingNudgeTarget(agent config.Agent, cityName, cityPath string, cfg *config.City, sessionName string) nudgeTarget {
+func buildSlingNudgeTarget(agent config.Agent, cityName, cityPath string, cfg *config.City, store beads.Store, sessionName string) nudgeTarget {
 	resolved, _ := config.ResolveProvider(&agent, &cfg.Workspace, cfg.Providers, exec.LookPath)
-	return nudgeTarget{
+	return withNudgeTargetFence(store, nudgeTarget{
 		cityPath:    cityPath,
 		cityName:    cityName,
 		cfg:         cfg,
 		agent:       agent,
 		resolved:    resolved,
 		sessionName: sessionName,
-	}
+	})
 }
 
-func deliverSlingNudge(target nudgeTarget, sp runtime.Provider, cityPath string, stdout, stderr io.Writer) {
+func deliverSlingNudge(target nudgeTarget, sp runtime.Provider, store beads.Store, cityPath string, stdout, stderr io.Writer) {
 	const msg = "Work slung. Check your hook."
 	running := sp.IsRunning(target.sessionName)
 	now := time.Now()
@@ -888,7 +888,7 @@ func deliverSlingNudge(target nudgeTarget, sp runtime.Provider, cityPath string,
 		return
 	}
 
-	if err := enqueueQueuedNudge(target.cityPath, newQueuedNudge(target.agent.QualifiedName(), msg, "sling", now)); err != nil {
+	if err := enqueueQueuedNudgeWithStore(target.cityPath, store, newQueuedNudge(target.agent.QualifiedName(), msg, "sling", now)); err != nil {
 		telemetry.RecordNudge(context.Background(), target.agent.QualifiedName(), err)
 		fmt.Fprintf(stderr, "gc sling: nudge failed: %v\n", err) //nolint:errcheck // best-effort
 		return

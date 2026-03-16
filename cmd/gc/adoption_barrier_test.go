@@ -76,6 +76,12 @@ func TestAdoptionBarrier_AdoptsRunning(t *testing.T) {
 		if !hasAgentLabel {
 			t.Errorf("bead %q missing agent: label, labels = %v", b.Title, b.Labels)
 		}
+		if b.Metadata["continuation_epoch"] != "1" {
+			t.Errorf("bead %q continuation_epoch = %q, want 1", b.Title, b.Metadata["continuation_epoch"])
+		}
+		if b.Metadata["instance_token"] == "" {
+			t.Errorf("bead %q missing instance_token", b.Title)
+		}
 	}
 }
 
