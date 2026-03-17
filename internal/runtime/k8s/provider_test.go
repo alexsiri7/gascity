@@ -731,6 +731,7 @@ func TestInitBeadsInPod(t *testing.T) {
 				script := c.cmd[2]
 				// The script uses base64-encoded values. Verify they decode correctly.
 				if containsStr(script, "bd init --server") &&
+					containsStr(script, "--skip-agents") &&
 					containsStr(script, "base64 -d") &&
 					scriptContainsB64(script, "/workspace/demo-repo") &&
 					scriptContainsB64(script, "dolt.gc.svc.cluster.local") &&

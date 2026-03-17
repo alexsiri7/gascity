@@ -716,7 +716,7 @@ func initBeadsInPod(ctx context.Context, ops k8sOps, podName string, cfg runtime
 			`else PREFIX=$(echo '%s' | base64 -d) && `+
 			`DOLT_HOST=$(echo '%s' | base64 -d) && `+
 			`DOLT_PORT=$(echo '%s' | base64 -d) && `+
-			`yes | bd init --server --server-host "$DOLT_HOST" --server-port "$DOLT_PORT" -p "$PREFIX" --skip-hooks; fi`,
+			`yes | bd init --server --server-host "$DOLT_HOST" --server-port "$DOLT_PORT" -p "$PREFIX" --skip-hooks --skip-agents; fi`,
 		workDirB64, patchB64, prefixB64,
 		base64.StdEncoding.EncodeToString([]byte(doltHost)),
 		base64.StdEncoding.EncodeToString([]byte(doltPort)),
