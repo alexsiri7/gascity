@@ -11,6 +11,7 @@ import (
 	"github.com/gastownhall/gascity/internal/beads"
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/events"
+	"github.com/gastownhall/gascity/internal/fsys"
 	"github.com/gastownhall/gascity/internal/runtime"
 )
 
@@ -56,6 +57,53 @@ func TestCityRuntimeReloadProviderSwapPreservesDrainTracker(t *testing.T) {
 	}
 	if cr.sessionDrains == nil {
 		t.Fatal("sessionDrains = nil after provider swap, want non-nil")
+	}
+}
+
+func TestCityRuntimeReloadSameRevisionIsNoOp(t *testing.T) {
+	cityPath := t.TempDir()
+	tomlPath := filepath.Join(cityPath, "city.toml")
+	writeCityRuntimeConfig(t, tomlPath, "fake")
+
+	cfg, prov, err := config.LoadWithIncludes(fsys.OSFS{}, tomlPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	configRev := config.Revision(fsys.OSFS{}, prov, cfg, cityPath)
+
+	sp := runtime.NewFake()
+	var stdout bytes.Buffer
+	cr := newCityRuntime(CityRuntimeParams{
+		CityPath:  cityPath,
+		CityName:  "test-city",
+		TomlPath:  tomlPath,
+		ConfigRev: configRev,
+		Cfg:       cfg,
+		SP:        sp,
+		BuildFn: func(*config.City, runtime.Provider, beads.Store) map[string]TemplateParams {
+			return map[string]TemplateParams{}
+		},
+		Dops:   newDrainOps(sp),
+		Rec:    events.Discard,
+		Stdout: &stdout,
+		Stderr: io.Discard,
+	})
+
+	oldCfg := cr.cfg
+	lastProviderName := "fake"
+	cr.reloadConfig(context.Background(), &lastProviderName, cityPath)
+
+	if cr.cfg != oldCfg {
+		t.Fatal("same-revision reload should keep existing config pointer")
+	}
+	if cr.configRev != configRev {
+		t.Fatalf("configRev = %q, want %q", cr.configRev, configRev)
+	}
+	if lastProviderName != "fake" {
+		t.Fatalf("lastProviderName = %q, want fake", lastProviderName)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty for same-revision reload", stdout.String())
 	}
 }
 

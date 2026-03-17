@@ -30,6 +30,7 @@ type CityRuntime struct {
 	cityName  string
 	tomlPath  string
 	watchDirs []string
+	configRev string
 
 	serviceStateMu sync.RWMutex
 	cfg            *config.City
@@ -75,6 +76,7 @@ type CityRuntimeParams struct {
 	CityName  string
 	TomlPath  string
 	WatchDirs []string
+	ConfigRev string
 
 	Cfg         *config.City
 	SP          runtime.Provider
@@ -126,6 +128,7 @@ func newCityRuntime(p CityRuntimeParams) *CityRuntime {
 		cityName:          p.CityName,
 		tomlPath:          p.TomlPath,
 		watchDirs:         p.WatchDirs,
+		configRev:         p.ConfigRev,
 		cfg:               p.Cfg,
 		sp:                p.SP,
 		publication:       p.Publication,
@@ -381,6 +384,9 @@ func (cr *CityRuntime) reloadConfig(
 		telemetry.RecordConfigReload(ctx, "", err)
 		return
 	}
+	if cr.configRev != "" && result.Revision == cr.configRev {
+		return
+	}
 
 	oldAgentCount := len(cr.cfg.Agents)
 	oldRigCount := len(cr.cfg.Rigs)
@@ -517,6 +523,7 @@ func (cr *CityRuntime) reloadConfig(
 	if cr.cityBeadStore() != nil && cr.tomlPath != "" && cr.sessionDrains == nil {
 		cr.sessionDrains = newDrainTracker()
 	}
+	cr.configRev = result.Revision
 
 	fmt.Fprintf(cr.stdout, "Config reloaded: %s (rev %s)\n", //nolint:errcheck
 		configReloadSummary(oldAgentCount, oldRigCount, len(nextCfg.Agents), len(nextCfg.Rigs)),

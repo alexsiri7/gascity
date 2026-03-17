@@ -778,6 +778,7 @@ func reconcileCities(
 		poolSessions := computePoolSessions(cfg, cityName, path, sp)
 		poolDeathHandlers := computePoolDeathHandlers(cfg, cityName, path, sp)
 		watchDirs := config.WatchDirs(prov, cfg, path)
+		configRev := config.Revision(fsys.OSFS{}, prov, cfg, path)
 		pokeCh := make(chan struct{}, 1)
 		cityCtx, cityCancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
@@ -788,6 +789,7 @@ func reconcileCities(
 			CityName:          cityName,
 			TomlPath:          tomlPath,
 			WatchDirs:         watchDirs,
+			ConfigRev:         configRev,
 			Cfg:               cfg,
 			SP:                sp,
 			Publication:       publication,

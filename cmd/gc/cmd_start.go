@@ -497,7 +497,8 @@ func doStartStandalone(args []string, controllerMode bool, stdout, stderr io.Wri
 		poolSessions := computePoolSessions(cfg, cityName, cityPath, sp)
 		poolDeathHandlers := computePoolDeathHandlers(cfg, cityName, cityPath, sp)
 		watchDirs := config.WatchDirs(prov, cfg, cityPath)
-		return runController(cityPath, tomlPath, cfg, buildAgents, sp,
+		configRev := config.Revision(fsys.OSFS{}, prov, cfg, cityPath)
+		return runController(cityPath, tomlPath, cfg, configRev, buildAgents, sp,
 			newDrainOps(sp), poolSessions, poolDeathHandlers, watchDirs, recorder, eventProv, stdout, stderr)
 	}
 
