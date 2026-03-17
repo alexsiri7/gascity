@@ -441,6 +441,30 @@ func TestComputeWorkSet_ResolvesRigDir(t *testing.T) {
 	}
 }
 
+func TestComputeWorkSet_UsesConfiguredRigRoot(t *testing.T) {
+	cityDir := t.TempDir()
+	rigDir := filepath.Join(t.TempDir(), "external-rig")
+
+	cfg := &config.City{
+		Rigs: []config.Rig{{Name: "myrig", Path: rigDir}},
+		Agents: []config.Agent{
+			{Name: "polecat", Dir: "myrig", Pool: &config.PoolConfig{Min: 0, Max: 3}},
+		},
+	}
+
+	runner := func(_ string, dir string) (string, error) {
+		if dir == rigDir {
+			return "MC-1\n", nil
+		}
+		return "", fmt.Errorf("unexpected dir %q, want %q", dir, rigDir)
+	}
+
+	work := computeWorkSet(cfg, runner, cityDir)
+	if !work["myrig/polecat"] {
+		t.Error("expected myrig/polecat to have work when rig root is configured externally")
+	}
+}
+
 func TestComputeWorkSet_NilRunner(t *testing.T) {
 	cfg := &config.City{
 		Agents: []config.Agent{{Name: "worker"}},

@@ -72,15 +72,7 @@ func buildDesiredState(
 		if pool.Max == 1 && !cfg.Agents[i].IsPool() {
 			// Fixed agent.
 			rigName := configuredRigName(cityPath, &cfg.Agents[i], cfg.Rigs)
-			expandedDir := expandDirTemplate(effectiveWorkDirSpec(&cfg.Agents[i]), SessionSetupContext{
-				Agent:     cfg.Agents[i].QualifiedName(),
-				AgentBase: cfg.Agents[i].Name,
-				Rig:       rigName,
-				RigRoot:   rigRootForName(rigName, cfg.Rigs),
-				CityRoot:  cityPath,
-				CityName:  cityName,
-			})
-			_, err := resolveAgentDir(cityPath, expandedDir)
+			_, err := resolveConfiguredWorkDir(cityPath, cityName, &cfg.Agents[i], cfg.Rigs)
 			if err != nil {
 				fmt.Fprintf(stderr, "buildDesiredState: agent %q: %v (skipping)\n", cfg.Agents[i].QualifiedName(), err) //nolint:errcheck
 				continue
@@ -101,18 +93,11 @@ func buildDesiredState(
 		}
 
 		// Pool agent: collect for parallel scale_check.
-		if cfg.Agents[i].Dir != "" {
-			poolDir, pdErr := resolveAgentDir(cityPath, cfg.Agents[i].Dir)
-			if pdErr == nil && suspendedRigPaths[filepath.Clean(poolDir)] {
-				continue
-			}
+		rigName := configuredRigName(cityPath, &cfg.Agents[i], cfg.Rigs)
+		if rigName != "" && suspendedRigPaths[filepath.Clean(rigRootForName(rigName, cfg.Rigs))] {
+			continue
 		}
-		poolDir := cityPath
-		if cfg.Agents[i].Dir != "" {
-			if pd, pdErr := resolveAgentDir(cityPath, cfg.Agents[i].Dir); pdErr == nil {
-				poolDir = pd
-			}
-		}
+		poolDir := agentCommandDir(cityPath, &cfg.Agents[i], cfg.Rigs)
 		pendingPools = append(pendingPools, poolEvalWork{agentIdx: i, pool: pool, poolDir: poolDir})
 	}
 

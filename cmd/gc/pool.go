@@ -243,12 +243,7 @@ func runPoolOnBoot(cfg *config.City, cityPath string, runner ScaleCheckRunner, s
 		if cmd == "" {
 			continue
 		}
-		dir := cityPath
-		if a.Dir != "" {
-			if d, err := resolveAgentDir(cityPath, a.Dir); err == nil {
-				dir = d
-			}
-		}
+		dir := agentCommandDir(cityPath, &a, cfg.Rigs)
 		if _, err := runner(cmd, dir); err != nil {
 			fmt.Fprintf(stderr, "on_boot %s: %v\n", a.QualifiedName(), err) //nolint:errcheck // best-effort stderr
 		}

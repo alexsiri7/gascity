@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -59,19 +60,35 @@ func TestParsePruneDuration(t *testing.T) {
 }
 
 func TestResolveWorkDir(t *testing.T) {
+	cityPath := t.TempDir()
 	tests := []struct {
-		name     string
-		cityPath string
-		dir      string
-		want     string
+		name  string
+		cfg   *config.City
+		agent *config.Agent
+		want  string
 	}{
-		{"city-scoped", "/home/user/city", "", "/home/user/city"},
-		{"rig-scoped", "/home/user/city", "my-rig", "/home/user/city/rigs/my-rig"},
+		{
+			name:  "city-scoped",
+			cfg:   &config.City{Workspace: config.Workspace{Name: "city"}},
+			agent: &config.Agent{},
+			want:  cityPath,
+		},
+		{
+			name: "work-dir override",
+			cfg: &config.City{
+				Workspace: config.Workspace{Name: "city"},
+				Rigs:      []config.Rig{{Name: "my-rig", Path: "/repos/my-rig"}},
+			},
+			agent: &config.Agent{Dir: "my-rig", WorkDir: ".gc/worktrees/{{.Rig}}/refinery"},
+			want:  filepath.Join(cityPath, ".gc", "worktrees", "my-rig", "refinery"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := &config.Agent{Dir: tt.dir}
-			got := resolveWorkDir(tt.cityPath, a)
+			got, err := resolveWorkDir(cityPath, tt.cfg, tt.agent)
+			if err != nil {
+				t.Fatalf("resolveWorkDir error = %v", err)
+			}
 			if got != tt.want {
 				t.Errorf("resolveWorkDir = %q, want %q", got, tt.want)
 			}

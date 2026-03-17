@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/gastownhall/gascity/internal/config"
 )
 
 func TestMergeEnvEmptyMaps(t *testing.T) {
@@ -188,4 +190,30 @@ func TestStageHookFilesIncludesCanonicalClaudeHook(t *testing.T) {
 		}
 	}
 	t.Fatal("stageHookFiles() did not stage .gc/settings.json")
+}
+
+func TestConfiguredRigNameMatchesRigByPathWithoutCreatingDirs(t *testing.T) {
+	cityPath := t.TempDir()
+	rigRoot := filepath.Join(cityPath, "repos", "demo")
+	agentDir := filepath.Join("repos", "demo")
+	agent := &config.Agent{Name: "witness", Dir: agentDir}
+	rigs := []config.Rig{{Name: "demo", Path: rigRoot}}
+
+	got := configuredRigName(cityPath, agent, rigs)
+	if got != "demo" {
+		t.Fatalf("configuredRigName() = %q, want demo", got)
+	}
+	if _, err := os.Stat(filepath.Join(cityPath, agentDir)); !os.IsNotExist(err) {
+		t.Fatalf("configuredRigName() created %q as a side effect", filepath.Join(cityPath, agentDir))
+	}
+}
+
+func TestConfiguredRigNameUnmatchedPathReturnsEmpty(t *testing.T) {
+	cityPath := t.TempDir()
+	agent := &config.Agent{Name: "witness", Dir: filepath.Join("repos", "other")}
+	rigs := []config.Rig{{Name: "demo", Path: filepath.Join(cityPath, "repos", "demo")}}
+
+	if got := configuredRigName(cityPath, agent, rigs); got != "" {
+		t.Fatalf("configuredRigName() = %q, want empty", got)
+	}
 }

@@ -320,10 +320,10 @@ func buildPrimeContext(cityPath string, a *config.Agent, rigs []config.Rig) Prom
 		ctx.RigName = gcRig
 		ctx.RigRoot = os.Getenv("GC_RIG_ROOT")
 		ctx.IssuePrefix = findRigPrefix(gcRig, rigs)
-	} else if a.Dir != "" {
-		ctx.RigName = a.Dir
-		ctx.RigRoot = rigRootForName(a.Dir, rigs)
-		ctx.IssuePrefix = findRigPrefix(a.Dir, rigs)
+	} else if rigName := configuredRigName(cityPath, a, rigs); rigName != "" {
+		ctx.RigName = rigName
+		ctx.RigRoot = rigRootForName(rigName, rigs)
+		ctx.IssuePrefix = findRigPrefix(rigName, rigs)
 	}
 
 	ctx.Branch = os.Getenv("GC_BRANCH")

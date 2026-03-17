@@ -82,28 +82,20 @@ func resolveTemplate(p *agentBuildParams, cfgAgent *config.Agent, qualifiedName 
 	if err != nil {
 		return TemplateParams{}, fmt.Errorf("agent %q: %w", qualifiedName, err)
 	}
-	_, agentBase := config.ParseQualifiedName(qualifiedName)
-
 	// Step 2: Validate session vs provider compatibility.
 	if cfgAgent.Session == "acp" && !resolved.SupportsACP {
 		return TemplateParams{}, fmt.Errorf("agent %q: session = \"acp\" but provider %q does not support ACP (set supports_acp = true on the provider)", qualifiedName, resolved.Name)
 	}
 
 	// Step 3: Expand dir template.
-	rigName := configuredRigName(p.cityPath, cfgAgent, p.rigs)
-	rigRoot := rigRootForName(rigName, p.rigs)
-	expandedDir := expandDirTemplate(effectiveWorkDirSpec(cfgAgent), SessionSetupContext{
-		Agent:     qualifiedName,
-		AgentBase: agentBase,
-		Rig:       rigName,
-		RigRoot:   rigRoot,
-		CityRoot:  p.cityPath,
-		CityName:  p.cityName,
-	})
-	workDir, err := resolveAgentDir(p.cityPath, expandedDir)
+	dirCtx := sessionSetupContextForAgent(p.cityPath, p.cityName, qualifiedName, cfgAgent, p.rigs)
+	workDir, err := resolveConfiguredWorkDir(p.cityPath, p.cityName, cfgAgent, p.rigs)
 	if err != nil {
 		return TemplateParams{}, fmt.Errorf("agent %q: %w", qualifiedName, err)
 	}
+	rigName := dirCtx.Rig
+	rigRoot := dirCtx.RigRoot
+	agentBase := dirCtx.AgentBase
 
 	// Step 4: Resolve overlay directory.
 	overlayDir := resolveOverlayDir(cfgAgent.OverlayDir, p.cityPath)

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gastownhall/gascity/internal/beads"
+	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/session"
 	"github.com/gastownhall/gascity/internal/sessionlog"
 )
@@ -329,5 +330,24 @@ func TestResolveSessionLogWorkDirBySessionName(t *testing.T) {
 	}
 	if got != "/tmp/myrig" {
 		t.Fatalf("resolveSessionLogWorkDir() = %q, want %q", got, "/tmp/myrig")
+	}
+}
+
+func TestResolveAgentWorkDirUsesWorkDir(t *testing.T) {
+	cityPath := t.TempDir()
+	cfg := &config.City{
+		Workspace: config.Workspace{Name: "gastown"},
+		Rigs:      []config.Rig{{Name: "demo", Path: filepath.Join(cityPath, "repos", "demo")}},
+	}
+	agent := config.Agent{
+		Name:    "refinery",
+		Dir:     "demo",
+		WorkDir: ".gc/worktrees/{{.Rig}}/refinery",
+	}
+
+	got := resolveAgentWorkDir(agent, cfg, cityPath)
+	want := filepath.Join(cityPath, ".gc", "worktrees", "demo", "refinery")
+	if got != want {
+		t.Fatalf("resolveAgentWorkDir() = %q, want %q", got, want)
 	}
 }

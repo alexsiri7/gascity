@@ -135,19 +135,18 @@ func resolveSessionLogWorkDir(store beads.Store, identifier string) (string, boo
 	return workDir, true
 }
 
-// resolveAgentWorkDir returns the absolute working directory for an agent.
-// For rig-scoped agents, this is the rig's Path. For city-scoped agents,
-// this is the city root.
+// resolveAgentWorkDir returns the absolute working directory for an agent,
+// honoring work_dir template expansion.
 func resolveAgentWorkDir(a config.Agent, cfg *config.City, cityPath string) string {
-	if a.Dir == "" {
-		return cityPath
+	cityName := filepath.Base(cityPath)
+	if cfg != nil && cfg.Workspace.Name != "" {
+		cityName = cfg.Workspace.Name
 	}
-	for _, rig := range cfg.Rigs {
-		if rig.Name == a.Dir {
-			return rig.Path
-		}
+	var rigs []config.Rig
+	if cfg != nil {
+		rigs = cfg.Rigs
 	}
-	return ""
+	return lookupConfiguredWorkDir(cityPath, cityName, &a, rigs)
 }
 
 // doSessionLogs reads the session file and prints messages. If follow is true,

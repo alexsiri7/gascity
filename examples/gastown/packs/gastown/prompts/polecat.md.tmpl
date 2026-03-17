@@ -12,7 +12,7 @@ Your branch-setup step creates a git worktree and records it in `metadata.work_d
 on your work bead. Once created, **stay in your worktree.**
 
 - **ALL file edits** must be within your worktree directory
-- **NEVER edit files in** `{{ .CityRoot }}/{{ .RigName }}/` (rig root) — that's not a git working tree
+- **NEVER edit files in** `{{ .RigRoot }}/` (rig root) — that's not a git working tree
 
 The failure mode: You `cd` to the rig root, edit files there. **YOUR WORK IS LOST** — the
 rig root has no `.git`, so your edits were never committed.

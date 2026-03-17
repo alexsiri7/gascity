@@ -119,12 +119,7 @@ func computePoolDeathHandlers(cfg *config.City, cityName, cityPath string, sp ru
 			if cmd == "" {
 				continue
 			}
-			dir := cityPath
-			if a.Dir != "" {
-				if d, err := resolveAgentDir(cityPath, a.Dir); err == nil {
-					dir = d
-				}
-			}
+			dir := agentCommandDir(cityPath, &a, cfg.Rigs)
 			sn := cliSessionName(cityPath, cityName, qualifiedInstance, st)
 			handlers[sn] = poolDeathInfo{Command: cmd, Dir: dir}
 		}
@@ -651,16 +646,24 @@ func stageHookFiles(copyFiles []runtime.CopyEntry, cityPath, workDir string) []r
 	return copyFiles
 }
 
-// resolveAgentDir returns the absolute working directory for an agent.
-// Empty dir defaults to cityPath. Relative paths resolve against cityPath.
-// Creates the directory if it doesn't exist.
-func resolveAgentDir(cityPath, dir string) (string, error) {
+// resolveAgentDirPath returns the absolute filesystem path for an agent dir
+// spec. Empty dir defaults to cityPath. Relative paths resolve against
+// cityPath. This helper is pure and does not create directories.
+func resolveAgentDirPath(cityPath, dir string) string {
 	if dir == "" {
-		return cityPath, nil
+		return cityPath
 	}
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(cityPath, dir)
 	}
+	return dir
+}
+
+// resolveAgentDir returns the absolute working directory for an agent.
+// Empty dir defaults to cityPath. Relative paths resolve against cityPath.
+// Creates the directory if it doesn't exist.
+func resolveAgentDir(cityPath, dir string) (string, error) {
+	dir = resolveAgentDirPath(cityPath, dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating agent dir %q: %w", dir, err)
 	}
@@ -679,6 +682,37 @@ func effectiveWorkDirSpec(a *config.Agent) string {
 	return a.Dir
 }
 
+func sessionSetupContextForAgent(cityPath, cityName, qualifiedName string, a *config.Agent, rigs []config.Rig) SessionSetupContext {
+	rigName := configuredRigName(cityPath, a, rigs)
+	_, agentBase := config.ParseQualifiedName(qualifiedName)
+	return SessionSetupContext{
+		Agent:     qualifiedName,
+		AgentBase: agentBase,
+		Rig:       rigName,
+		RigRoot:   rigRootForName(rigName, rigs),
+		CityRoot:  cityPath,
+		CityName:  cityName,
+	}
+}
+
+func resolveConfiguredWorkDir(cityPath, cityName string, a *config.Agent, rigs []config.Rig) (string, error) {
+	if a == nil {
+		return resolveAgentDir(cityPath, "")
+	}
+	ctx := sessionSetupContextForAgent(cityPath, cityName, a.QualifiedName(), a, rigs)
+	expandedDir := expandDirTemplate(effectiveWorkDirSpec(a), ctx)
+	return resolveAgentDir(cityPath, expandedDir)
+}
+
+func lookupConfiguredWorkDir(cityPath, cityName string, a *config.Agent, rigs []config.Rig) string {
+	if a == nil {
+		return resolveAgentDirPath(cityPath, "")
+	}
+	ctx := sessionSetupContextForAgent(cityPath, cityName, a.QualifiedName(), a, rigs)
+	expandedDir := expandDirTemplate(effectiveWorkDirSpec(a), ctx)
+	return resolveAgentDirPath(cityPath, expandedDir)
+}
+
 // configuredRigName returns the rig associated with an agent, preferring the
 // legacy dir-as-rig convention and falling back to path matching for inline
 // configs that point directly at a rig path.
@@ -691,10 +725,7 @@ func configuredRigName(cityPath string, a *config.Agent, rigs []config.Rig) stri
 			return r.Name
 		}
 	}
-	if abs, err := resolveAgentDir(cityPath, a.Dir); err == nil {
-		return resolveRigForAgent(abs, rigs)
-	}
-	return ""
+	return resolveRigForAgent(resolveAgentDirPath(cityPath, a.Dir), rigs)
 }
 
 // rigRootForName returns the configured rig root path.
@@ -705,6 +736,25 @@ func rigRootForName(rigName string, rigs []config.Rig) string {
 		}
 	}
 	return ""
+}
+
+// agentCommandDir returns the directory used for controller-side shell
+// commands such as work_query, scale_check, on_boot, and on_death. These
+// commands operate against the canonical rig repository, not an individual
+// agent's isolated work_dir.
+func agentCommandDir(cityPath string, a *config.Agent, rigs []config.Rig) string {
+	if a == nil {
+		return cityPath
+	}
+	if rigName := configuredRigName(cityPath, a, rigs); rigName != "" {
+		if rigRoot := rigRootForName(rigName, rigs); rigRoot != "" {
+			return rigRoot
+		}
+	}
+	if dir, err := resolveAgentDir(cityPath, a.Dir); err == nil {
+		return dir
+	}
+	return resolveAgentDirPath(cityPath, a.Dir)
 }
 
 // passthroughEnv returns environment variables from the parent process that

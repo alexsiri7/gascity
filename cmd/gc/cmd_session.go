@@ -133,7 +133,11 @@ func cmdSessionNew(args []string, title string, noAttach bool, stdout, stderr io
 	mgr := newSessionManager(store, sp)
 
 	// Build the work directory.
-	workDir := resolveWorkDir(cityPath, &found)
+	workDir, err := resolveWorkDir(cityPath, cfg, &found)
+	if err != nil {
+		fmt.Fprintf(stderr, "gc session new: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
 
 	// Store the canonical qualified name so the reconciler can match it
 	// via findAgentByTemplate (which compares against QualifiedName()).
@@ -946,15 +950,18 @@ func cmdSessionNudge(args []string, delivery nudgeDeliveryMode, stdout, stderr i
 	return deliverSessionNudge(targetInfo, message, delivery, stdout, stderr)
 }
 
-// resolveWorkDir determines the working directory for a session based on
-// the agent config. Uses the rig path if set, otherwise the city directory.
-func resolveWorkDir(cityPath string, agent *config.Agent) string {
-	if agent.Dir != "" {
-		// Rig-scoped agent: use rig path.
-		rigPath := filepath.Join(cityPath, "rigs", agent.Dir)
-		return rigPath
+// resolveWorkDir determines the working directory for a session based on the
+// agent config. work_dir overrides dir, while dir still carries rig identity.
+func resolveWorkDir(cityPath string, cfg *config.City, agent *config.Agent) (string, error) {
+	cityName := filepath.Base(cityPath)
+	if cfg != nil && cfg.Workspace.Name != "" {
+		cityName = cfg.Workspace.Name
 	}
-	return cityPath
+	var rigs []config.Rig
+	if cfg != nil {
+		rigs = cfg.Rigs
+	}
+	return resolveConfiguredWorkDir(cityPath, cityName, agent, rigs)
 }
 
 func shouldAttachNewSession(noAttach bool, transport string) bool {

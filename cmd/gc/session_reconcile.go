@@ -101,10 +101,10 @@ func wakeReasons(
 
 // computeWorkSet runs each agent's work_query command and returns the set
 // of template names that have pending work. Called once per reconciler tick.
-// The runner executes shell commands in the agent's working directory;
-// non-empty output means work exists. Agents without a work_query produce
-// no WakeWork reason. Uses EffectiveWorkQuery() which provides sensible
-// defaults so all agents participate in work-driven wake automatically.
+// Controller-side queries run from the canonical city/rig root so pack
+// commands continue to operate on the real repo even when agent sessions use
+// isolated work_dir sandboxes. Non-empty output means work exists. Agents
+// without a work_query produce no WakeWork reason.
 func computeWorkSet(cfg *config.City, runner ScaleCheckRunner, cityDir string) map[string]bool {
 	if cfg == nil || runner == nil {
 		return nil
@@ -121,12 +121,7 @@ func computeWorkSet(cfg *config.City, runner ScaleCheckRunner, cityDir string) m
 		if wq == "" {
 			continue
 		}
-		dir := cityDir
-		if a.Dir != "" {
-			if resolved, err := resolveAgentDir(cityDir, a.Dir); err == nil {
-				dir = resolved
-			}
-		}
+		dir := agentCommandDir(cityDir, &a, cfg.Rigs)
 		out, err := runner(wq, dir)
 		if err != nil {
 			continue // command failed — treat as no work

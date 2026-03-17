@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -579,6 +580,33 @@ func TestRunPoolOnBootError(t *testing.T) {
 	}
 }
 
+func TestRunPoolOnBootUsesRigRootForRigScopedPools(t *testing.T) {
+	var dirs []string
+	runner := func(_ string, dir string) (string, error) {
+		dirs = append(dirs, dir)
+		return "", nil
+	}
+	cityPath := t.TempDir()
+	rigRoot := filepath.Join(t.TempDir(), "demo-rig")
+
+	cfg := &config.City{
+		Rigs: []config.Rig{{Name: "demo", Path: rigRoot}},
+		Agents: []config.Agent{
+			{Name: "polecat", Dir: "demo", Pool: &config.PoolConfig{Min: 0, Max: 3}},
+		},
+	}
+
+	var stderr bytes.Buffer
+	runPoolOnBoot(cfg, cityPath, runner, &stderr)
+
+	if len(dirs) != 1 {
+		t.Fatalf("runner calls = %d, want 1", len(dirs))
+	}
+	if dirs[0] != rigRoot {
+		t.Fatalf("on_boot dir = %q, want %q", dirs[0], rigRoot)
+	}
+}
+
 func TestComputePoolDeathHandlers(t *testing.T) {
 	cfg := &config.City{
 		Workspace: config.Workspace{Name: "test"},
@@ -608,6 +636,27 @@ func TestComputePoolDeathHandlers(t *testing.T) {
 		want := fmt.Sprintf("--assignee=dog-%d", i)
 		if !strings.Contains(info.Command, want) {
 			t.Errorf("handler[%s].Command = %q, want %s", sn, info.Command, want)
+		}
+	}
+}
+
+func TestComputePoolDeathHandlersUsesRigRootForRigScopedPools(t *testing.T) {
+	rigRoot := filepath.Join(t.TempDir(), "demo-rig")
+	cfg := &config.City{
+		Workspace: config.Workspace{Name: "test"},
+		Rigs:      []config.Rig{{Name: "demo", Path: rigRoot}},
+		Agents: []config.Agent{
+			{Name: "polecat", Dir: "demo", Pool: &config.PoolConfig{Min: 0, Max: 2}},
+		},
+	}
+
+	handlers := computePoolDeathHandlers(cfg, "test", t.TempDir(), runtime.NewFake())
+	if len(handlers) != 2 {
+		t.Fatalf("len(handlers) = %d, want 2", len(handlers))
+	}
+	for sessionName, info := range handlers {
+		if info.Dir != rigRoot {
+			t.Fatalf("handler[%s].Dir = %q, want %q", sessionName, info.Dir, rigRoot)
 		}
 	}
 }
