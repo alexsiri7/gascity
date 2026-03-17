@@ -43,7 +43,8 @@ func TestBdStoreConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	port := 3307
+	// Use a dynamic port to avoid conflicts with other dolt servers.
+	port := findFreePort(t)
 	logFile := filepath.Join(serverDir, ".gc", "dolt.log")
 	if err := os.MkdirAll(filepath.Dir(logFile), 0o755); err != nil {
 		t.Fatal(err)
@@ -70,6 +71,9 @@ func TestBdStoreConformance(t *testing.T) {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	})
+
+	// Set GC_DOLT_PORT so bd subprocesses connect to our dynamic-port server.
+	t.Setenv("GC_DOLT_PORT", fmt.Sprintf("%d", port))
 
 	// Wait for server to accept connections.
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
@@ -106,8 +110,9 @@ func TestBdStoreConformance(t *testing.T) {
 			t.Fatalf("git init: %v: %s", err, out)
 		}
 
-		// Run bd init --server with unique prefix (creates unique database).
-		bdInit := exec.Command("bd", "init", "--server", "-p", prefix, "--skip-hooks")
+		// Run bd init --server with unique prefix and dynamic port.
+		bdInit := exec.Command("bd", "init", "--server", "-p", prefix, "--skip-hooks",
+			"--server-port", fmt.Sprintf("%d", port))
 		bdInit.Dir = wsDir
 		if out, err := bdInit.CombinedOutput(); err != nil {
 			t.Fatalf("bd init: %v: %s", err, out)
@@ -127,6 +132,18 @@ func TestBdStoreConformance(t *testing.T) {
 	// uses bd's ID format (prefix-XXXX), not gc-N sequential format.
 	beadstest.RunStoreTests(t, newStore)
 	beadstest.RunMetadataTests(t, newStore)
+}
+
+// findFreePort asks the OS for a free TCP port.
+func findFreePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("finding free port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	return port
 }
 
 // ensureDoltIdentity ensures dolt has user.name and user.email set.

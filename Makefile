@@ -100,7 +100,7 @@ test:
 
 ## test-integration: run all tests including integration (tmux, etc.)
 test-integration:
-	go test -tags integration ./...
+	go test -tags integration -timeout 8m ./...
 
 ## check-docs: verify docs sync tests and Mintlify link checks
 check-docs:
@@ -114,7 +114,7 @@ COVER_PKGS := $(shell go list ./... | grep -v -e /session/tmux -e /beadstest)
 
 ## test-cover: run all tests with coverage output (excludes tmux)
 test-cover:
-	go test -tags integration -coverprofile=coverage.txt $(COVER_PKGS)
+	go test -tags integration -timeout 8m -coverprofile=coverage.txt $(COVER_PKGS)
 
 ## cover: run tests and show coverage report
 cover: test-cover
