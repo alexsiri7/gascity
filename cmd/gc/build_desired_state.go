@@ -385,7 +385,9 @@ func discoverSessionBeads(
 		// Pool agents: respect the pool's scaling decision for config-managed
 		// slots, but keep manual session roots discoverable even when the pool
 		// currently wants 0 instances. Manual roots come from `gc session new`
-		// and intentionally bypass scale checks.
+		// and intentionally bypass scale checks. If the main config iteration
+		// did not produce desired entries for this template, the pool wants 0
+		// instances — don't re-add stale session beads as that bypasses scaling.
 		if cfgAgent.Pool != nil {
 			templateHasDesired := false
 			for _, existing := range desired {
