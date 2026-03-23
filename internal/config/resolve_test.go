@@ -692,6 +692,91 @@ func TestResolveProviderResumeCommandFromSpec(t *testing.T) {
 	}
 }
 
+// TestResolveProviderRotationGeminiFlashClaudeSonnet verifies that provider
+// rotation selects between city-level providers like gemini-flash and
+// claude-sonnet when configured via the providers list.
+func TestResolveProviderRotationGeminiFlashClaudeSonnet(t *testing.T) {
+	cityProviders := map[string]ProviderSpec{
+		"gemini-flash": {
+			Command:    "gemini",
+			PromptMode: "arg",
+		},
+		"claude-sonnet": {
+			Command:    "claude",
+			PromptMode: "arg",
+		},
+	}
+	agent := &Agent{
+		Name:      "worker",
+		Providers: []string{"gemini-flash", "claude-sonnet"},
+	}
+
+	seen := make(map[string]bool)
+	for i := 0; i < 200; i++ {
+		rp, err := ResolveProvider(agent, nil, cityProviders, lookPathAll)
+		if err != nil {
+			t.Fatalf("ResolveProvider iteration %d: %v", i, err)
+		}
+		if rp.Name != "gemini-flash" && rp.Name != "claude-sonnet" {
+			t.Fatalf("unexpected provider %q, want gemini-flash or claude-sonnet", rp.Name)
+		}
+		seen[rp.Name] = true
+	}
+
+	if !seen["gemini-flash"] {
+		t.Error("gemini-flash was never selected in 200 iterations")
+	}
+	if !seen["claude-sonnet"] {
+		t.Error("claude-sonnet was never selected in 200 iterations")
+	}
+}
+
+// TestResolveProviderRotationResolvesCorrectSpec verifies that each
+// rotated provider resolves to its own ProviderSpec (correct command).
+func TestResolveProviderRotationResolvesCorrectSpec(t *testing.T) {
+	cityProviders := map[string]ProviderSpec{
+		"gemini-flash": {
+			Command:    "gemini",
+			PromptMode: "stdin",
+			Args:       []string{"--model", "flash"},
+		},
+		"claude-sonnet": {
+			Command:    "claude",
+			PromptMode: "arg",
+			Args:       []string{"--model", "sonnet"},
+		},
+	}
+	agent := &Agent{
+		Name:      "worker",
+		Providers: []string{"gemini-flash", "claude-sonnet"},
+	}
+
+	for i := 0; i < 50; i++ {
+		rp, err := ResolveProvider(agent, nil, cityProviders, lookPathAll)
+		if err != nil {
+			t.Fatalf("ResolveProvider: %v", err)
+		}
+		switch rp.Name {
+		case "gemini-flash":
+			if rp.Command != "gemini" {
+				t.Errorf("gemini-flash: Command = %q, want %q", rp.Command, "gemini")
+			}
+			if rp.PromptMode != "stdin" {
+				t.Errorf("gemini-flash: PromptMode = %q, want %q", rp.PromptMode, "stdin")
+			}
+		case "claude-sonnet":
+			if rp.Command != "claude" {
+				t.Errorf("claude-sonnet: Command = %q, want %q", rp.Command, "claude")
+			}
+			if rp.PromptMode != "arg" {
+				t.Errorf("claude-sonnet: PromptMode = %q, want %q", rp.PromptMode, "arg")
+			}
+		default:
+			t.Fatalf("unexpected provider %q", rp.Name)
+		}
+	}
+}
+
 func TestResolveProviderResumeCommandAgentOverride(t *testing.T) {
 	agent := &Agent{
 		Name:          "worker",
