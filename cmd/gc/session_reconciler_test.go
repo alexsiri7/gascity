@@ -1731,10 +1731,10 @@ func TestReconcileSessionBeads_RestartRequestedWorksWhenSessionDead(t *testing.T
 }
 
 // ---------------------------------------------------------------------------
-// Drain-ack clears session_key
+// Drain-ack clears session_key when wake_mode=fresh
 // ---------------------------------------------------------------------------
 
-func TestReconcileSessionBeads_DrainAckClearsSessionKey(t *testing.T) {
+func TestReconcileSessionBeads_DrainAckClearsSessionKeyWhenFresh(t *testing.T) {
 	env := newReconcilerTestEnv()
 	env.cfg = &config.City{Agents: []config.Agent{{Name: "worker"}}}
 	env.addDesired("worker", "worker", true) // session is alive
@@ -1744,10 +1744,12 @@ func TestReconcileSessionBeads_DrainAckClearsSessionKey(t *testing.T) {
 		"session_key":         "old-conversation-key",
 		"started_config_hash": "some-hash",
 		"state":               "awake",
+		"wake_mode":           "fresh",
 	})
 	session.Metadata["session_key"] = "old-conversation-key"
 	session.Metadata["started_config_hash"] = "some-hash"
 	session.Metadata["state"] = "awake"
+	session.Metadata["wake_mode"] = "fresh"
 
 	dops := newFakeDrainOps()
 	_ = dops.setDrainAck("worker")
@@ -1759,7 +1761,7 @@ func TestReconcileSessionBeads_DrainAckClearsSessionKey(t *testing.T) {
 		t.Fatalf("getting bead: %v", err)
 	}
 	if got.Metadata["session_key"] != "" {
-		t.Errorf("session_key should be cleared after drain-ack, got %q", got.Metadata["session_key"])
+		t.Errorf("session_key should be cleared after drain-ack with wake_mode=fresh, got %q", got.Metadata["session_key"])
 	}
 	if got.Metadata["started_config_hash"] != "" {
 		t.Errorf("started_config_hash should be cleared after drain-ack, got %q", got.Metadata["started_config_hash"])
@@ -1772,14 +1774,55 @@ func TestReconcileSessionBeads_DrainAckClearsSessionKey(t *testing.T) {
 	}
 }
 
+func TestReconcileSessionBeads_DrainAckPreservesSessionKeyWhenResume(t *testing.T) {
+	env := newReconcilerTestEnv()
+	env.cfg = &config.City{Agents: []config.Agent{{Name: "worker"}}}
+	env.addDesired("worker", "worker", true)
+
+	session := env.createSessionBead("worker", "worker")
+	_ = env.store.SetMetadataBatch(session.ID, map[string]string{
+		"session_key":         "keep-this-key",
+		"started_config_hash": "some-hash",
+		"state":               "awake",
+		// wake_mode defaults to "resume" (empty)
+	})
+	session.Metadata["session_key"] = "keep-this-key"
+	session.Metadata["started_config_hash"] = "some-hash"
+	session.Metadata["state"] = "awake"
+
+	dops := newFakeDrainOps()
+	_ = dops.setDrainAck("worker")
+
+	env.reconcileWithDops([]beads.Bead{session}, dops)
+
+	got, err := env.store.Get(session.ID)
+	if err != nil {
+		t.Fatalf("getting bead: %v", err)
+	}
+	if got.Metadata["session_key"] != "keep-this-key" {
+		t.Errorf("session_key should be preserved with default wake_mode, got %q", got.Metadata["session_key"])
+	}
+	if got.Metadata["continuation_reset_pending"] == "true" {
+		t.Error("continuation_reset_pending should not be set when wake_mode is resume")
+	}
+	// Session should still be stopped regardless.
+	if env.sp.IsRunning("worker") {
+		t.Error("session should have been stopped")
+	}
+}
+
 func TestReconcileSessionBeads_DrainAckNoKeySkipsClear(t *testing.T) {
 	env := newReconcilerTestEnv()
 	env.cfg = &config.City{Agents: []config.Agent{{Name: "worker"}}}
 	env.addDesired("worker", "worker", true)
 
 	session := env.createSessionBead("worker", "worker")
-	_ = env.store.SetMetadata(session.ID, "state", "awake")
+	_ = env.store.SetMetadataBatch(session.ID, map[string]string{
+		"state":     "awake",
+		"wake_mode": "fresh",
+	})
 	session.Metadata["state"] = "awake"
+	session.Metadata["wake_mode"] = "fresh"
 	// No session_key set.
 
 	dops := newFakeDrainOps()
