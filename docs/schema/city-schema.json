@@ -866,6 +866,11 @@
           },
           "type": "array",
           "description": "ObservePaths lists extra directories to search for Claude JSONL session\nfiles (e.g., aimux session paths). The default search path\n(~/.claude/projects/) is always included."
+        },
+        "startup_probe_timeout": {
+          "type": "string",
+          "description": "StartupProbeTimeout is how long to wait after waking a session for the\nagent to acknowledge startup (via gc prime). If the agent doesn't ack\nwithin this window, the session is considered stuck (e.g., provider at\nan interactive prompt or quota wall) and is killed so the reconciler\ncan retry — potentially with a different provider via rotation.\nDuration string (e.g., \"90s\", \"2m\"). Defaults to \"90s\".\nSet to \"0s\" to disable startup probes.",
+          "default": "90s"
         }
       },
       "additionalProperties": false,

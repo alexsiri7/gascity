@@ -25,6 +25,8 @@ type drainOps interface {
 	setDriftRestart(sessionName string) error
 	isDriftRestart(sessionName string) (bool, error)
 	clearDriftRestart(sessionName string) error
+	setStartupAck(sessionName string) error
+	isStartupAcked(sessionName string) (bool, error)
 }
 
 // providerDrainOps implements drainOps using runtime.Provider metadata.
@@ -106,6 +108,18 @@ func (o *providerDrainOps) isDriftRestart(sessionName string) (bool, error) {
 
 func (o *providerDrainOps) clearDriftRestart(sessionName string) error {
 	return o.sp.RemoveMeta(sessionName, "GC_DRIFT_RESTART")
+}
+
+func (o *providerDrainOps) setStartupAck(sessionName string) error {
+	return o.sp.SetMeta(sessionName, "GC_STARTUP_ACK", strconv.FormatInt(time.Now().Unix(), 10))
+}
+
+func (o *providerDrainOps) isStartupAcked(sessionName string) (bool, error) {
+	val, err := o.sp.GetMeta(sessionName, "GC_STARTUP_ACK")
+	if err != nil {
+		return false, nil
+	}
+	return val != "", nil
 }
 
 // newDrainOps creates a drainOps from a runtime.Provider.

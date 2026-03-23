@@ -3671,3 +3671,31 @@ func TestInjectImplicitAgents_RigInjection(t *testing.T) {
 		}
 	}
 }
+
+func TestDaemonConfig_StartupProbeTimeoutDefault(t *testing.T) {
+	d := DaemonConfig{}
+	if got := d.StartupProbeTimeoutDuration(); got != 90*time.Second {
+		t.Errorf("StartupProbeTimeoutDuration() = %v, want 90s", got)
+	}
+}
+
+func TestDaemonConfig_StartupProbeTimeoutCustom(t *testing.T) {
+	d := DaemonConfig{StartupProbeTimeout: "2m"}
+	if got := d.StartupProbeTimeoutDuration(); got != 2*time.Minute {
+		t.Errorf("StartupProbeTimeoutDuration() = %v, want 2m", got)
+	}
+}
+
+func TestDaemonConfig_StartupProbeTimeoutDisabled(t *testing.T) {
+	d := DaemonConfig{StartupProbeTimeout: "0s"}
+	if got := d.StartupProbeTimeoutDuration(); got != 0 {
+		t.Errorf("StartupProbeTimeoutDuration() = %v, want 0 (disabled)", got)
+	}
+}
+
+func TestDaemonConfig_StartupProbeTimeoutInvalid(t *testing.T) {
+	d := DaemonConfig{StartupProbeTimeout: "bad"}
+	if got := d.StartupProbeTimeoutDuration(); got != 90*time.Second {
+		t.Errorf("StartupProbeTimeoutDuration() = %v, want 90s (default on invalid)", got)
+	}
+}

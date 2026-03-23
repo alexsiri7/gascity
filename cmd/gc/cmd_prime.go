@@ -94,6 +94,10 @@ func doPrimeWithMode(args []string, stdout, _ io.Writer, hookMode bool) int { //
 			persistPrimeHookSessionID(sessionID)
 		}
 	}
+	// Signal the startup probe that this agent is alive and working.
+	// Best-effort: failures are silently ignored — the controller will
+	// retry or eventually quarantine via the existing crash-loop mechanism.
+	ackStartupProbe()
 
 	// Try to find city and load config.
 	cityPath, err := resolveCity()
@@ -231,6 +235,19 @@ func readPrimeHookStdin() *primeHookInput {
 		return nil
 	}
 	return &input
+}
+
+// ackStartupProbe signals the controller that this agent's provider started
+// successfully. Sets GC_STARTUP_ACK on the session via the runtime provider.
+// Best-effort: errors are silently ignored.
+func ackStartupProbe() {
+	target, err := currentSessionRuntimeTarget()
+	if err != nil {
+		return // not in a managed session context
+	}
+	sp := newSessionProvider()
+	dops := newDrainOps(sp)
+	_ = dops.setStartupAck(target.sessionName)
 }
 
 func persistPrimeHookSessionID(sessionID string) {

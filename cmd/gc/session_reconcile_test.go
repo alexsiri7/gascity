@@ -1036,3 +1036,95 @@ func TestForwardCompatibility_UnknownState(t *testing.T) {
 		t.Errorf("expected warning about unknown state in stderr, got: %s", env.stderr.String())
 	}
 }
+
+// --- checkStartupProbe tests ---
+
+func TestCheckStartupProbe_DisabledWhenZeroTimeout(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"last_woke_at": now.Add(-5 * time.Minute).Format(time.RFC3339),
+	})
+	dops := newFakeDrainOps()
+	if checkStartupProbe(session, true, dops, clk, 0) {
+		t.Error("startup probe should be disabled when timeout is 0")
+	}
+}
+
+func TestCheckStartupProbe_NotAlive(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"last_woke_at": now.Add(-5 * time.Minute).Format(time.RFC3339),
+	})
+	dops := newFakeDrainOps()
+	if checkStartupProbe(session, false, dops, clk, 90*time.Second) {
+		t.Error("startup probe should not fire for dead sessions")
+	}
+}
+
+func TestCheckStartupProbe_WithinWindow(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"last_woke_at": now.Add(-30 * time.Second).Format(time.RFC3339),
+	})
+	dops := newFakeDrainOps()
+	if checkStartupProbe(session, true, dops, clk, 90*time.Second) {
+		t.Error("startup probe should not fire within the window")
+	}
+}
+
+func TestCheckStartupProbe_PastWindowNotAcked(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"last_woke_at": now.Add(-2 * time.Minute).Format(time.RFC3339),
+	})
+	dops := newFakeDrainOps()
+	if !checkStartupProbe(session, true, dops, clk, 90*time.Second) {
+		t.Error("startup probe should fire when past window and not acked")
+	}
+}
+
+func TestCheckStartupProbe_PastWindowAcked(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"last_woke_at": now.Add(-2 * time.Minute).Format(time.RFC3339),
+	})
+	dops := newFakeDrainOps()
+	_ = dops.setStartupAck("worker")
+	if checkStartupProbe(session, true, dops, clk, 90*time.Second) {
+		t.Error("startup probe should not fire when acked")
+	}
+}
+
+func TestCheckStartupProbe_NoLastWokeAt(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+	})
+	dops := newFakeDrainOps()
+	if checkStartupProbe(session, true, dops, clk, 90*time.Second) {
+		t.Error("startup probe should not fire without last_woke_at")
+	}
+}
+
+func TestCheckStartupProbe_NilDrainOps(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"last_woke_at": now.Add(-2 * time.Minute).Format(time.RFC3339),
+	})
+	if checkStartupProbe(session, true, nil, clk, 90*time.Second) {
+		t.Error("startup probe should not fire with nil drainOps")
+	}
+}

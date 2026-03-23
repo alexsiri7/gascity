@@ -839,6 +839,14 @@ type DaemonConfig struct {
 	// files (e.g., aimux session paths). The default search path
 	// (~/.claude/projects/) is always included.
 	ObservePaths []string `toml:"observe_paths,omitempty"`
+	// StartupProbeTimeout is how long to wait after waking a session for the
+	// agent to acknowledge startup (via gc prime). If the agent doesn't ack
+	// within this window, the session is considered stuck (e.g., provider at
+	// an interactive prompt or quota wall) and is killed so the reconciler
+	// can retry — potentially with a different provider via rotation.
+	// Duration string (e.g., "90s", "2m"). Defaults to "90s".
+	// Set to "0s" to disable startup probes.
+	StartupProbeTimeout string `toml:"startup_probe_timeout,omitempty" jsonschema:"default=90s"`
 }
 
 // PatrolIntervalDuration returns the patrol interval as a time.Duration.
@@ -898,6 +906,20 @@ func (d *DaemonConfig) DriftDrainTimeoutDuration() time.Duration {
 	dur, err := time.ParseDuration(d.DriftDrainTimeout)
 	if err != nil {
 		return 2 * time.Minute
+	}
+	return dur
+}
+
+// StartupProbeTimeoutDuration returns the startup probe timeout as a
+// time.Duration. Defaults to 90s if empty or unparseable. Returns 0
+// if explicitly set to "0s" (disabled).
+func (d *DaemonConfig) StartupProbeTimeoutDuration() time.Duration {
+	if d.StartupProbeTimeout == "" {
+		return 90 * time.Second
+	}
+	dur, err := time.ParseDuration(d.StartupProbeTimeout)
+	if err != nil {
+		return 90 * time.Second
 	}
 	return dur
 }

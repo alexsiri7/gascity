@@ -46,6 +46,7 @@ const (
 	OrderCompleted     = "order.completed"
 	OrderFailed        = "order.failed"
 	ProviderSwapped    = "provider.swapped"
+	SessionStartupDead = "session.startup_dead"
 )
 
 // Event is a single recorded occurrence in the system.

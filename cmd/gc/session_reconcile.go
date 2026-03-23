@@ -280,6 +280,46 @@ func clearWakeFailures(session *beads.Bead, store beads.Store) {
 	}
 }
 
+// checkStartupProbe detects sessions that are alive but never acknowledged
+// startup (gc prime didn't run). This catches providers stuck at interactive
+// prompts, quota walls, or trust dialogs where the tmux session appears
+// "running" but the agent never starts working.
+//
+// Returns true if the session should be killed (stuck startup). The caller
+// should stop the session and record a wake failure so the reconciler can
+// retry — potentially selecting a different provider via rotation.
+//
+// Skipped when startupProbeTimeout <= 0 (disabled), when the session hasn't
+// been alive long enough, or when the agent already acked.
+func checkStartupProbe(
+	session beads.Bead,
+	alive bool,
+	dops drainOps,
+	clk clock.Clock,
+	startupProbeTimeout time.Duration,
+) bool {
+	if startupProbeTimeout <= 0 || !alive {
+		return false
+	}
+	lastWoke := session.Metadata["last_woke_at"]
+	if lastWoke == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339, lastWoke)
+	if err != nil {
+		return false
+	}
+	if clk.Now().Sub(t) < startupProbeTimeout {
+		return false // still within the startup window
+	}
+	name := session.Metadata["session_name"]
+	if name == "" || dops == nil {
+		return false
+	}
+	acked, _ := dops.isStartupAcked(name)
+	return !acked
+}
+
 // stableLongEnough returns true if the session has been alive past stabilityThreshold.
 func stableLongEnough(session beads.Bead, clk clock.Clock) bool {
 	lastWoke := session.Metadata["last_woke_at"]

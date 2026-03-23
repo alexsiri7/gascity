@@ -565,7 +565,7 @@ func doStartStandalone(args []string, controllerMode bool, stdout, stderr io.Wri
 	reconcileSessionBeads(
 		sigCtx, open, ds, cfgNames, cfg, sp, oneShotStore,
 		nil, nil, nil, dt, poolDesired, cityName,
-		nil, clock.Real{}, recorder, cfg.Session.StartupTimeoutDuration(), 0,
+		nil, clock.Real{}, recorder, cfg.Session.StartupTimeoutDuration(), 0, 0,
 		stdout, stderr,
 	)
 

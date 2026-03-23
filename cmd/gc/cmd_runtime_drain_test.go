@@ -135,6 +135,21 @@ func (f *fakeDrainOps) clearDriftRestart(sessionName string) error {
 	return nil
 }
 
+func (f *fakeDrainOps) setStartupAck(sessionName string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.acked[sessionName+"#startup"] = true
+	return nil
+}
+
+func (f *fakeDrainOps) isStartupAcked(sessionName string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.acked[sessionName+"#startup"], nil
+}
+
 // ---------------------------------------------------------------------------
 // doRuntimeDrain tests
 // ---------------------------------------------------------------------------

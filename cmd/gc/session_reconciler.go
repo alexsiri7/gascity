@@ -134,6 +134,7 @@ func reconcileSessionBeads(
 	clk clock.Clock,
 	rec events.Recorder,
 	startupTimeout time.Duration,
+	startupProbeTimeout time.Duration,
 	driftDrainTimeout time.Duration,
 	stdout, stderr io.Writer,
 ) int {
@@ -226,6 +227,26 @@ func reconcileSessionBeads(
 		// Stability check: detect rapid exit (crash).
 		if checkStability(session, cfg, alive, dt, store, clk) {
 			continue // crash recorded, skip further processing
+		}
+
+		// Startup probe: detect sessions alive but stuck (provider at prompt,
+		// quota wall, etc.). Must run BEFORE clearing wake failures so that a
+		// stuck session doesn't reset its counter.
+		if checkStartupProbe(*session, alive, dops, clk, startupProbeTimeout) {
+			fmt.Fprintf(stderr, "session reconciler: startup probe failed for %s (no ack within %s)\n", name, startupProbeTimeout) //nolint:errcheck
+			rec.Record(events.Event{
+				Type:    events.SessionStartupDead,
+				Actor:   "gc",
+				Subject: tp.DisplayName(),
+				Message: fmt.Sprintf("no startup ack within %s", startupProbeTimeout),
+			})
+			if err := sp.Stop(name); err != nil {
+				fmt.Fprintf(stderr, "session reconciler: stopping stuck %s: %v\n", name, err) //nolint:errcheck
+			}
+			recordWakeFailure(session, store, clk)
+			_ = store.SetMetadata(session.ID, "last_woke_at", "")
+			session.Metadata["last_woke_at"] = ""
+			continue
 		}
 
 		// Clear wake failures for sessions that have been stable long enough.
