@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/runtime"
+	"github.com/gastownhall/gascity/internal/sessionlog"
 	"github.com/gastownhall/gascity/internal/telemetry"
 )
 
@@ -213,6 +215,7 @@ func reconcileSessionBeads(
 					Message: output,
 				})
 				telemetry.RecordAgentCrash(context.Background(), tp.DisplayName(), output)
+				recordSessionTokens(*session, tp.DisplayName(), cfg, stderr)
 			}
 		}
 		if alive && shouldRollbackPendingCreate(session) && !runningSessionMatchesPendingCreate(session, name, sp) {
@@ -275,6 +278,7 @@ func reconcileSessionBeads(
 						Subject: tp.DisplayName(),
 						Message: "drain acknowledged by agent",
 					})
+					recordSessionTokens(*session, tp.DisplayName(), cfg, stderr)
 				}
 				continue
 			}
@@ -303,6 +307,7 @@ func reconcileSessionBeads(
 					fmt.Fprintf(stderr, "session reconciler: stopping restart-requested %s: %v\n", name, err) //nolint:errcheck
 				} else {
 					fmt.Fprintf(stdout, "Stopped restart-requested session '%s'\n", name) //nolint:errcheck
+					recordSessionTokens(*session, tp.DisplayName(), cfg, stderr)
 				}
 				continue
 			}
@@ -388,6 +393,7 @@ func reconcileSessionBeads(
 					Subject: tp.DisplayName(),
 				})
 				telemetry.RecordAgentIdleKill(context.Background(), tp.DisplayName())
+				recordSessionTokens(*session, tp.DisplayName(), cfg, stderr)
 				// Mark for immediate re-wake on this same tick by clearing
 				// last_woke_at and setting state to asleep. The wake logic
 				// below will pick it up.
@@ -479,6 +485,45 @@ func resolveSessionCommand(command, sessionKey string, rp *config.ResolvedProvid
 		return command + " " + rp.SessionIDFlag + " " + sessionKey
 	}
 	return resolveResumeCommand(command, sessionKey, rp)
+}
+
+// recordSessionTokens extracts token totals from a stopped session's JSONL log
+// and records them to OTel. Best-effort: errors are logged to stderr but do not
+// block the reconciler.
+func recordSessionTokens(session beads.Bead, agentName string, cfg *config.City, stderr io.Writer) {
+	workDir := session.Metadata["work_dir"]
+	if workDir == "" {
+		return
+	}
+	if abs, err := filepath.Abs(workDir); err == nil {
+		workDir = abs
+	}
+
+	searchPaths := sessionlog.DefaultSearchPaths()
+	if cfg != nil {
+		searchPaths = sessionlog.MergeSearchPaths(cfg.Daemon.ObservePaths)
+	}
+
+	sessionKey := session.Metadata["session_key"]
+	var sessionFile string
+	if sessionKey != "" {
+		sessionFile = sessionlog.FindSessionFileByID(searchPaths, workDir, sessionKey)
+	} else {
+		sessionFile = sessionlog.FindSessionFile(searchPaths, workDir)
+	}
+	if sessionFile == "" {
+		return
+	}
+
+	ctx := context.Background()
+	totals, err := sessionlog.ExtractAllTokenTotals(sessionFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "session reconciler: token extraction for %s: %v\n", agentName, err) //nolint:errcheck
+		return
+	}
+	for _, t := range totals {
+		telemetry.RecordTokenUsage(ctx, agentName, t.Model, t.InputTokens, t.OutputTokens)
+	}
 }
 
 // resolveResumeCommand returns the command to use when resuming a session.

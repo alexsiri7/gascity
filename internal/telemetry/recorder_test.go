@@ -176,3 +176,12 @@ func TestRecordBeadStoreHealth(t *testing.T) {
 	RecordBeadStoreHealth(ctx, "test-city", true)
 	RecordBeadStoreHealth(ctx, "test-city", false)
 }
+
+func TestRecordTokenUsage(t *testing.T) {
+	resetInstruments(t)
+	ctx := context.Background()
+
+	RecordTokenUsage(ctx, "polecat-1", "claude-opus-4-5-20251101", 50000, 3000)
+	RecordTokenUsage(ctx, "mayor", "claude-sonnet-4-5-20251101", 10000, 500)
+	RecordTokenUsage(ctx, "polecat-2", "", 0, 0) // edge: no model, zero tokens
+}
