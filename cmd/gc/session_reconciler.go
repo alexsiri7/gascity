@@ -21,6 +21,7 @@ import (
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/runtime"
+	"github.com/gastownhall/gascity/internal/sessionlog"
 	"github.com/gastownhall/gascity/internal/telemetry"
 )
 
@@ -205,6 +206,7 @@ func reconcileSessionBeads(
 
 		// Zombie capture: session exists but process dead — grab scrollback for forensics.
 		if sp.IsRunning(name) && !alive {
+			recordSessionTokens(tp.DisplayName(), tp.WorkDir, cfg)
 			if output, err := sp.Peek(name, 50); err == nil && output != "" {
 				rec.Record(events.Event{
 					Type:    events.SessionCrashed,
@@ -265,6 +267,7 @@ func reconcileSessionBeads(
 		if alive && dops != nil {
 			if acked, _ := dops.isDrainAcked(name); acked {
 				_ = dops.clearDrain(name)
+				recordSessionTokens(tp.DisplayName(), tp.WorkDir, cfg)
 				if err := sp.Stop(name); err != nil {
 					fmt.Fprintf(stderr, "session reconciler: stopping drain-acked %s: %v\n", name, err) //nolint:errcheck
 				} else {
@@ -503,4 +506,27 @@ func resolveResumeCommand(command, sessionKey string, rp *config.ResolvedProvide
 	default: // "flag"
 		return command + " " + rp.ResumeFlag + " " + sessionKey
 	}
+}
+
+// recordSessionTokens extracts final token usage from a session's log file
+// and records it via OTel counters. Best-effort: errors are silently ignored.
+func recordSessionTokens(agentName, workDir string, cfg *config.City) {
+	if workDir == "" {
+		return
+	}
+	searchPaths := sessionlog.MergeSearchPaths(cfg.Daemon.ObservePaths)
+	sessionFile := sessionlog.FindSessionFile(searchPaths, workDir)
+	if sessionFile == "" {
+		return
+	}
+	meta, err := sessionlog.ExtractTailMeta(sessionFile)
+	if err != nil || meta == nil || meta.ContextUsage == nil {
+		return
+	}
+	telemetry.RecordAgentTokens(
+		context.Background(),
+		agentName,
+		int64(meta.ContextUsage.InputTokens),
+		int64(meta.ContextUsage.OutputTokens),
+	)
 }

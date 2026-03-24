@@ -176,3 +176,12 @@ func TestRecordBeadStoreHealth(t *testing.T) {
 	RecordBeadStoreHealth(ctx, "test-city", true)
 	RecordBeadStoreHealth(ctx, "test-city", false)
 }
+
+func TestRecordAgentTokens(t *testing.T) {
+	resetInstruments(t)
+	ctx := context.Background()
+
+	RecordAgentTokens(ctx, "agent1", 10000, 500)
+	RecordAgentTokens(ctx, "agent2", 0, 0)
+	RecordAgentTokens(ctx, "agent3", 50000, 0)
+}

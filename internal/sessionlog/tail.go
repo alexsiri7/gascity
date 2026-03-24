@@ -18,6 +18,7 @@ type TailMeta struct {
 // ContextUsage holds computed context usage data.
 type ContextUsage struct {
 	InputTokens   int `json:"input_tokens"`
+	OutputTokens  int `json:"output_tokens"`
 	Percentage    int `json:"percentage"`
 	ContextWindow int `json:"context_window"`
 }
@@ -200,6 +201,7 @@ type assistantMessage struct {
 	Model string `json:"model"`
 	Usage *struct {
 		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
 		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 	} `json:"usage"`
@@ -276,6 +278,7 @@ func extractFromLines(lines [][]byte) *TailMeta {
 
 			result.ContextUsage = &ContextUsage{
 				InputTokens:   totalInput,
+				OutputTokens:  lastUsage.Usage.OutputTokens,
 				Percentage:    pct,
 				ContextWindow: contextWindow,
 			}

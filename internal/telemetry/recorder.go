@@ -44,6 +44,10 @@ type recorderInstruments struct {
 	mailOpsTotal    metric.Int64Counter
 	drainTotal      metric.Int64Counter
 
+	// Counters — Agent token usage (2)
+	agentTokensInput  metric.Int64Counter
+	agentTokensOutput metric.Int64Counter
+
 	// Gauges (1)
 	beadStoreHealthy metric.Int64Gauge
 
@@ -113,6 +117,16 @@ func initInstruments() {
 		)
 		inst.drainTotal, _ = m.Int64Counter("gc.drain.transitions.total",
 			metric.WithDescription("Total agent drain lifecycle transitions"),
+		)
+
+		// Agent token usage
+		inst.agentTokensInput, _ = m.Int64Counter("gc.agent.tokens.input",
+			metric.WithDescription("Total input tokens consumed by agent sessions"),
+			metric.WithUnit("{token}"),
+		)
+		inst.agentTokensOutput, _ = m.Int64Counter("gc.agent.tokens.output",
+			metric.WithDescription("Total output tokens consumed by agent sessions"),
+			metric.WithUnit("{token}"),
 		)
 
 		// Gauges
@@ -477,5 +491,24 @@ func RecordDrainTransition(ctx context.Context, sessionName, reason, transition 
 		otellog.String("session", sessionName),
 		otellog.String("reason", reason),
 		otellog.String("transition", transition),
+	)
+}
+
+// RecordAgentTokens records agent token consumption (metrics + log event).
+// inputTokens and outputTokens are the cumulative token counts from the
+// session's last usage report.
+func RecordAgentTokens(ctx context.Context, agentName string, inputTokens, outputTokens int64) {
+	initInstruments()
+	attrs := metric.WithAttributes(attribute.String("agent", agentName))
+	if inputTokens > 0 {
+		inst.agentTokensInput.Add(ctx, inputTokens, attrs)
+	}
+	if outputTokens > 0 {
+		inst.agentTokensOutput.Add(ctx, outputTokens, attrs)
+	}
+	emit(ctx, "agent.tokens", otellog.SeverityInfo,
+		otellog.String("agent", agentName),
+		otellog.Int64("input_tokens", inputTokens),
+		otellog.Int64("output_tokens", outputTokens),
 	)
 }
