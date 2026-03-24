@@ -183,7 +183,12 @@ func resolveTemplate(p *agentBuildParams, cfgAgent *config.Agent, qualifiedName 
 	}
 
 	// Step 10: Merge environment layers.
-	env := convergence.ScrubTokenEnv(mergeEnv(passthroughEnv(), expandEnvMap(resolved.Env), expandEnvMap(cfgAgent.Env), agentEnv))
+	// Env values are merged WITHOUT expansion ($VAR references stay literal).
+	// Expansion happens later in prepareStartCandidate, after the config
+	// fingerprint has been computed. This prevents volatile runtime values
+	// (e.g., $GC_DOLT_PORT changing on dolt restart) from causing false
+	// config-drift restarts.
+	env := convergence.ScrubTokenEnv(mergeEnv(passthroughEnv(), resolved.Env, cfgAgent.Env, agentEnv))
 
 	// Step 11: Expand session setup templates.
 	configDir := p.cityPath

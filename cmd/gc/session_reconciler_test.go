@@ -179,6 +179,29 @@ func (e *reconcilerTestEnv) createSessionBead(name, template string) beads.Bead 
 	return b
 }
 
+func (e *reconcilerTestEnv) createSessionBeadWithHash(name, template, coreHash string) beads.Bead {
+	meta := map[string]string{
+		"session_name":   name,
+		"agent_name":     name,
+		"template":       template,
+		"config_hash":    coreHash,
+		"live_hash":      runtime.LiveFingerprint(runtime.Config{Command: "test-cmd"}),
+		"generation":     "1",
+		"instance_token": "test-token",
+		"state":          "asleep",
+	}
+	b, err := e.store.Create(beads.Bead{
+		Title:    name,
+		Type:     sessionBeadType,
+		Labels:   []string{sessionBeadLabel},
+		Metadata: meta,
+	})
+	if err != nil {
+		panic("creating test bead: " + err.Error())
+	}
+	return b
+}
+
 func (e *reconcilerTestEnv) reconcile(sessions []beads.Bead) int {
 	cfgNames := configuredSessionNames(e.cfg, "", e.store)
 	return reconcileSessionBeads(
@@ -493,6 +516,41 @@ func TestReconcileSessionBeads_NoDriftWhenHashMatches(t *testing.T) {
 
 	if ds := env.dt.get(session.ID); ds != nil {
 		t.Errorf("expected no drain, got %+v", ds)
+	}
+}
+
+// TestReconcileSessionBeads_NoDriftWithUnexpandedEnvRefs verifies that env
+// values containing $VAR references don't cause false config-drift when the
+// referenced var changes at runtime (e.g., GC_DOLT_PORT on dolt restart).
+// The fingerprint should be computed from the raw (unexpanded) env values.
+func TestReconcileSessionBeads_NoDriftWithUnexpandedEnvRefs(t *testing.T) {
+	// Env with a $VAR reference (not expanded).
+	rawEnv := map[string]string{
+		"GC_BEADS_PORT": "$GC_DOLT_PORT",
+	}
+	cfg := runtime.Config{Command: "test-cmd", Env: rawEnv}
+	hash := runtime.CoreFingerprint(cfg)
+
+	env := newReconcilerTestEnv()
+	env.cfg = &config.City{Agents: []config.Agent{{Name: "worker"}}}
+
+	// Desired state has the same raw env.
+	tp := TemplateParams{
+		Command:      "test-cmd",
+		SessionName:  "worker",
+		TemplateName: "worker",
+		Env:          rawEnv,
+	}
+	env.desiredState["worker"] = tp
+	_ = env.sp.Start(context.Background(), "worker", runtime.Config{Command: "test-cmd"})
+
+	// Session bead stores the hash computed from the same raw env.
+	session := env.createSessionBeadWithHash("worker", "worker", hash)
+
+	env.reconcile([]beads.Bead{session})
+
+	if ds := env.dt.get(session.ID); ds != nil {
+		t.Errorf("expected no drift with unexpanded env refs, got drain: %+v", ds)
 	}
 }
 

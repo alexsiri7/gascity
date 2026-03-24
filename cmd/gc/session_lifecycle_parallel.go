@@ -266,6 +266,10 @@ func prepareStartCandidate(
 	agentCfg := templateParamsToConfig(tp)
 	coreHash := runtime.CoreFingerprint(agentCfg)
 	liveHash := runtime.LiveFingerprint(agentCfg)
+	// Expand $VAR references in env values AFTER fingerprinting. The
+	// fingerprint uses raw (unexpanded) values so volatile runtime vars
+	// (e.g., $GC_DOLT_PORT) don't cause false config-drift detection.
+	agentCfg.Env = expandEnvMap(agentCfg.Env)
 	if wd := resolveTaskWorkDir(store, candidate.logicalTemplate(cfg)); wd != "" {
 		agentCfg.WorkDir = wd
 	} else if wd := session.Metadata["work_dir"]; wd != "" {
