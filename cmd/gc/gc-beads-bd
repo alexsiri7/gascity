@@ -701,6 +701,10 @@ op_start() {
     write_config_yaml
 
     # Start dolt sql-server with config file.
+    # cd to DATA_DIR so the server's cwd matches the configured data_dir.
+    # Without this, dolt may resolve databases relative to the inherited cwd
+    # (e.g., a rig's .beads/dolt), causing database resolution failures.
+    cd "$DATA_DIR"
     nohup dolt sql-server \
         --config "$CONFIG_FILE" \
         >> "$LOG_FILE" 2>&1 &
