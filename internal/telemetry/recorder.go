@@ -44,6 +44,10 @@ type recorderInstruments struct {
 	mailOpsTotal    metric.Int64Counter
 	drainTotal      metric.Int64Counter
 
+	// Counters — Phase 3: Token usage (2)
+	tokenInputTotal  metric.Int64Counter
+	tokenOutputTotal metric.Int64Counter
+
 	// Gauges (1)
 	beadStoreHealthy metric.Int64Gauge
 
@@ -118,6 +122,16 @@ func initInstruments() {
 		// Gauges
 		inst.beadStoreHealthy, _ = m.Int64Gauge("gc.bead_store.healthy",
 			metric.WithDescription("Whether the bead store is healthy (1) or unavailable (0)"),
+		)
+
+		// Counters — Phase 3: Token usage
+		inst.tokenInputTotal, _ = m.Int64Counter("gc.agent.tokens.input",
+			metric.WithDescription("Cumulative input tokens consumed per agent session"),
+			metric.WithUnit("{token}"),
+		)
+		inst.tokenOutputTotal, _ = m.Int64Counter("gc.agent.tokens.output",
+			metric.WithDescription("Cumulative output tokens consumed per agent session"),
+			metric.WithUnit("{token}"),
 		)
 
 		// Histograms
@@ -459,6 +473,24 @@ func RecordMailOp(ctx context.Context, operation string, err error) {
 		otellog.String("operation", operation),
 		otellog.String("status", status),
 		errKV(err),
+	)
+}
+
+// RecordTokenUsage records cumulative token consumption for a session (metrics + log event).
+// Called once per session lifecycle (typically at session stop) with the total tokens consumed.
+func RecordTokenUsage(ctx context.Context, agentName, model string, inputTokens, outputTokens int64) {
+	initInstruments()
+	attrs := metric.WithAttributes(
+		attribute.String("agent_name", agentName),
+		attribute.String("model", model),
+	)
+	inst.tokenInputTotal.Add(ctx, inputTokens, attrs)
+	inst.tokenOutputTotal.Add(ctx, outputTokens, attrs)
+	emit(ctx, "agent.tokens", otellog.SeverityInfo,
+		otellog.String("agent_name", agentName),
+		otellog.String("model", model),
+		otellog.Int64("input_tokens", inputTokens),
+		otellog.Int64("output_tokens", outputTokens),
 	)
 }
 
