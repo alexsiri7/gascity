@@ -716,7 +716,10 @@ func TestFindAnyQueuedNudgeBead_PrefersTerminalClosedBeadOverRollbackArtifact(t 
 
 func TestCmdSessionNudgeQueueResolvesSessionName(t *testing.T) {
 	t.Setenv("GC_BEADS", "file")
+	t.Setenv("GC_DOLT", "skip")
+	t.Setenv("GC_SESSION", "fake")
 	cityDir := t.TempDir()
+	t.Setenv("GC_CITY", cityDir)
 	rigDir := filepath.Join(cityDir, "rigs", "myrig")
 	if err := os.MkdirAll(rigDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(rig): %v", err)

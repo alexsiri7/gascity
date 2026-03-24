@@ -398,7 +398,15 @@ func TestGcBeadsBdStartUsesRootBeadsDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scriptEnv := append(os.Environ(),
+	// Filter out inherited GC_* env vars that could leak into the script
+	// and cause it to write state to the real city instead of the test dir.
+	var baseEnv []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "GC_") {
+			baseEnv = append(baseEnv, e)
+		}
+	}
+	scriptEnv := append(baseEnv,
 		"HOME="+homeDir,
 		"GIT_CONFIG_GLOBAL="+gitConfig,
 		"GC_CITY_PATH="+cityPath,

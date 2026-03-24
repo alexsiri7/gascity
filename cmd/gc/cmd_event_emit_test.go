@@ -44,6 +44,10 @@ func TestDoEventEmitSuccess(t *testing.T) {
 }
 
 func TestDoEventEmitDefaultActor(t *testing.T) {
+	t.Setenv("GC_ALIAS", "")
+	t.Setenv("GC_AGENT", "")
+	t.Setenv("GC_SESSION_ID", "")
+
 	ep := events.NewFake()
 
 	var stderr bytes.Buffer
@@ -63,6 +67,7 @@ func TestDoEventEmitDefaultActor(t *testing.T) {
 }
 
 func TestDoEventEmitGCAgentEnv(t *testing.T) {
+	t.Setenv("GC_ALIAS", "")
 	t.Setenv("GC_AGENT", "worker")
 
 	ep := events.NewFake()
