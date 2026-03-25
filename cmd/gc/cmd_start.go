@@ -566,6 +566,7 @@ func doStartStandalone(args []string, controllerMode bool, stdout, stderr io.Wri
 		sigCtx, open, ds, cfgNames, cfg, sp, oneShotStore,
 		nil, nil, nil, dt, poolDesired, cityName,
 		nil, clock.Real{}, recorder, cfg.Session.StartupTimeoutDuration(), 0, 0,
+		nil,
 		stdout, stderr,
 	)
 

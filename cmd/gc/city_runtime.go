@@ -16,6 +16,7 @@ import (
 	"github.com/gastownhall/gascity/internal/convergence"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/runtime"
+	"github.com/gastownhall/gascity/internal/sessionlog"
 	"github.com/gastownhall/gascity/internal/supervisor"
 	"github.com/gastownhall/gascity/internal/telemetry"
 	"github.com/gastownhall/gascity/internal/workspacesvc"
@@ -566,6 +567,10 @@ func (cr *CityRuntime) beadReconcileTick(ctx context.Context, desiredState map[s
 		readyWaitSet = nil
 	}
 
+	quotaSearchPaths := sessionlog.DefaultSearchPaths()
+	if cr.cfg != nil {
+		quotaSearchPaths = sessionlog.MergeSearchPaths(cr.cfg.Daemon.ObservePaths)
+	}
 	reconcileSessionBeads(
 		ctx, open, desiredState, cfgNames, cr.cfg, cr.sp, store,
 		cr.dops,
@@ -573,6 +578,7 @@ func (cr *CityRuntime) beadReconcileTick(ctx context.Context, desiredState map[s
 		cr.it, clock.Real{}, cr.rec, cr.cfg.Session.StartupTimeoutDuration(),
 		cr.cfg.Daemon.StartupProbeTimeoutDuration(),
 		cr.cfg.Daemon.DriftDrainTimeoutDuration(),
+		makeQuotaChecker(quotaSearchPaths),
 		cr.stdout, cr.stderr,
 	)
 	if err := dispatchReadyWaitNudges(cr.cityPath, store, cr.sp, time.Now()); err != nil {

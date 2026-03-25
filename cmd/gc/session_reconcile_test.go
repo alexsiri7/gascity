@@ -1128,3 +1128,127 @@ func TestCheckStartupProbe_NilDrainOps(t *testing.T) {
 		t.Error("startup probe should not fire with nil drainOps")
 	}
 }
+
+// --- checkQuotaExhausted tests ---
+
+func TestCheckQuotaExhausted_NilCheckerReturnsFalse(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"work_dir":     "/tmp/work",
+		"last_woke_at": now.Add(-10 * time.Minute).Format(time.RFC3339),
+	})
+	if checkQuotaExhausted(session, true, nil, clk) {
+		t.Error("nil checker should always return false")
+	}
+}
+
+func TestCheckQuotaExhausted_NotAliveReturnsFalse(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"work_dir":     "/tmp/work",
+		"last_woke_at": now.Add(-10 * time.Minute).Format(time.RFC3339),
+	})
+	called := false
+	checker := func(workDir, sessionKey string) bool { called = true; return true }
+	if checkQuotaExhausted(session, false, checker, clk) {
+		t.Error("should return false when session is not alive")
+	}
+	if called {
+		t.Error("checker should not be called when session is not alive")
+	}
+}
+
+func TestCheckQuotaExhausted_NotStableLongEnoughReturnsFalse(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	// last_woke_at is only 5s ago — within stabilityThreshold
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"work_dir":     "/tmp/work",
+		"last_woke_at": now.Add(-5 * time.Second).Format(time.RFC3339),
+	})
+	called := false
+	checker := func(workDir, sessionKey string) bool { called = true; return true }
+	if checkQuotaExhausted(session, true, checker, clk) {
+		t.Error("should return false when not stable long enough")
+	}
+	if called {
+		t.Error("checker should not be called when not stable long enough")
+	}
+}
+
+func TestCheckQuotaExhausted_NoWorkDirReturnsFalse(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		// no work_dir
+		"last_woke_at": now.Add(-10 * time.Minute).Format(time.RFC3339),
+	})
+	called := false
+	checker := func(workDir, sessionKey string) bool { called = true; return true }
+	if checkQuotaExhausted(session, true, checker, clk) {
+		t.Error("should return false when work_dir is empty")
+	}
+	if called {
+		t.Error("checker should not be called when work_dir is missing")
+	}
+}
+
+func TestCheckQuotaExhausted_CheckerReturnsFalse(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"work_dir":     "/some/work",
+		"last_woke_at": now.Add(-10 * time.Minute).Format(time.RFC3339),
+	})
+	// Checker that reports no quota exhaustion.
+	checker := func(workDir, sessionKey string) bool { return false }
+	if checkQuotaExhausted(session, true, checker, clk) {
+		t.Error("should return false when checker returns false")
+	}
+}
+
+func TestCheckQuotaExhausted_CheckerCalledWithWorkDirAndKey(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+
+	session := makeBead("b1", map[string]string{
+		"session_name": "worker",
+		"work_dir":     "/my/work/dir",
+		"session_key":  "session-abc",
+		"last_woke_at": now.Add(-10 * time.Minute).Format(time.RFC3339),
+	})
+
+	var gotWorkDir, gotSessionKey string
+	checker := func(workDir, sessionKey string) bool {
+		gotWorkDir = workDir
+		gotSessionKey = sessionKey
+		return true // quota exhausted
+	}
+
+	if !checkQuotaExhausted(session, true, checker, clk) {
+		t.Error("expected true when checker returns true")
+	}
+	if gotWorkDir != "/my/work/dir" {
+		t.Errorf("workDir passed to checker = %q, want %q", gotWorkDir, "/my/work/dir")
+	}
+	if gotSessionKey != "session-abc" {
+		t.Errorf("sessionKey passed to checker = %q, want %q", gotSessionKey, "session-abc")
+	}
+}
+
+// readFileContent is a test helper that reads a file's full content.
+func readFileContent(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	return string(data)
+}

@@ -15,6 +15,39 @@ import (
 	"github.com/gastownhall/gascity/internal/runtime"
 )
 
+// QuotaExhaustedChecker returns true if the session with the given work_dir
+// and session_key appears stuck because the provider account is quota-exhausted.
+// The checker is responsible for locating and reading the session transcript.
+// A nil value disables quota exhaustion detection.
+type QuotaExhaustedChecker func(workDir, sessionKey string) bool
+
+// checkQuotaExhausted returns true if an alive session appears stuck because
+// the provider account is quota-exhausted. Only checks sessions that have been
+// running past stabilityThreshold (to ensure a transcript exists) and have a
+// work_dir set.
+//
+// Returns false when checker is nil, the session is not alive, the session
+// has not been stable long enough, or work_dir is empty.
+func checkQuotaExhausted(
+	session beads.Bead,
+	alive bool,
+	checker QuotaExhaustedChecker,
+	clk clock.Clock,
+) bool {
+	if checker == nil || !alive {
+		return false
+	}
+	if !stableLongEnough(session, clk) {
+		return false
+	}
+	workDir := session.Metadata["work_dir"]
+	if workDir == "" {
+		return false
+	}
+	sessionKey := session.Metadata["session_key"]
+	return checker(workDir, sessionKey)
+}
+
 // wakeReasons computes why a session should be awake.
 // PURE FUNCTION — reads only, never writes metadata.
 // poolDesired is the per-tick snapshot from pool evaluation.

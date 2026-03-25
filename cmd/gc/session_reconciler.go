@@ -138,6 +138,7 @@ func reconcileSessionBeads(
 	startupTimeout time.Duration,
 	startupProbeTimeout time.Duration,
 	driftDrainTimeout time.Duration,
+	quotaChecker QuotaExhaustedChecker,
 	stdout, stderr io.Writer,
 ) int {
 	deps := buildDepsMap(cfg)
@@ -245,6 +246,26 @@ func reconcileSessionBeads(
 			})
 			if err := sp.Stop(name); err != nil {
 				fmt.Fprintf(stderr, "session reconciler: stopping stuck %s: %v\n", name, err) //nolint:errcheck
+			}
+			recordWakeFailure(session, store, clk)
+			_ = store.SetMetadata(session.ID, "last_woke_at", "")
+			session.Metadata["last_woke_at"] = ""
+			continue
+		}
+
+		// Quota exhaustion: detect sessions alive but stuck because the provider
+		// account is exhausted. Kill so the reconciler restarts with a different
+		// provider (e.g. via random provider rotation).
+		if checkQuotaExhausted(*session, alive, quotaChecker, clk) {
+			fmt.Fprintf(stderr, "session reconciler: quota exhausted for %s, cycling provider\n", name) //nolint:errcheck
+			rec.Record(events.Event{
+				Type:    events.SessionQuotaKilled,
+				Actor:   "gc",
+				Subject: tp.DisplayName(),
+				Message: "provider account quota exhausted — cycling to next provider",
+			})
+			if err := sp.Stop(name); err != nil {
+				fmt.Fprintf(stderr, "session reconciler: stopping quota-exhausted %s: %v\n", name, err) //nolint:errcheck
 			}
 			recordWakeFailure(session, store, clk)
 			_ = store.SetMetadata(session.ID, "last_woke_at", "")
@@ -465,6 +486,27 @@ func reconcileSessionBeads(
 	advanceSessionDrains(dt, sp, store, sessionLookup, cfg, poolDesired, workSet, readyWaitSet, clk)
 
 	return plannedWakes
+}
+
+// makeQuotaChecker builds a QuotaExhaustedChecker that locates the session
+// transcript using the given search paths and checks it for quota exhaustion
+// patterns. Returns nil if searchPaths is empty (detection disabled).
+func makeQuotaChecker(searchPaths []string) QuotaExhaustedChecker {
+	if len(searchPaths) == 0 {
+		return nil
+	}
+	return func(workDir, sessionKey string) bool {
+		var f string
+		if sessionKey != "" {
+			f = sessionlog.FindSessionFileByID(searchPaths, workDir, sessionKey)
+		} else {
+			f = sessionlog.FindSessionFile(searchPaths, workDir)
+		}
+		if f == "" {
+			return false
+		}
+		return sessionlog.DetectQuotaExhaustion(f)
+	}
 }
 
 // resolveTaskWorkDir checks the agent's assigned task beads for a work_dir
