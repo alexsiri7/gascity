@@ -335,6 +335,8 @@ func TestResolveCityFlag(t *testing.T) {
 
 	t.Run("flag_empty_fallback", func(t *testing.T) {
 		// With empty flag, should fall back to cwd-based discovery.
+		// Clear GC_CITY so we don't accidentally resolve the live city.
+		t.Setenv("GC_CITY", "")
 		dir := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(dir, ".gc"), 0o755); err != nil {
 			t.Fatal(err)
@@ -2493,9 +2495,25 @@ func TestDoAgentAddWithPromptTemplate(t *testing.T) {
 
 // --- gc prime tests ---
 
+// clearLiveGCEnv clears GC_* environment variables that point to a live Gas
+// Town environment. Without this, tests running inside an active city pick up
+// GC_CITY/GC_AGENT/GC_RIG and resolve against the real city instead of the
+// test's temp city.
+func clearLiveGCEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"GC_CITY", "GC_AGENT", "GC_RIG", "GC_RIG_ROOT",
+		"GC_DIR", "GC_BRANCH", "GC_SESSION_ID", "GC_SESSION_NAME",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
 func TestDoPrimeWithKnownAgent(t *testing.T) {
 	// Set up a temp city with a mayor agent that has a prompt_template.
 	dir := t.TempDir()
+	clearLiveGCEnv(t)
+	t.Setenv("GC_CITY", dir)
 	gcDir := filepath.Join(dir, ".gc")
 	if err := os.MkdirAll(gcDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -2516,13 +2534,6 @@ name = "mayor"
 prompt_template = "prompts/mayor.md"
 `
 	if err := os.WriteFile(filepath.Join(dir, "city.toml"), []byte(toml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Chdir into the city so findCity works.
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2538,6 +2549,9 @@ prompt_template = "prompts/mayor.md"
 
 func TestDoPrimeUsesGCAgentEnv(t *testing.T) {
 	dir := t.TempDir()
+	clearLiveGCEnv(t)
+	t.Setenv("GC_CITY", dir)
+	t.Setenv("GC_AGENT", "mayor")
 	gcDir := filepath.Join(dir, ".gc")
 	if err := os.MkdirAll(gcDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -2561,13 +2575,6 @@ prompt_template = "prompts/mayor.md"
 		t.Fatal(err)
 	}
 
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GC_AGENT", "mayor")
-
 	var stdout, stderr bytes.Buffer
 	code := doPrime(nil, &stdout, &stderr)
 	if code != 0 {
@@ -2581,6 +2588,8 @@ prompt_template = "prompts/mayor.md"
 func TestDoPrimeWithUnknownAgent(t *testing.T) {
 	// Set up a temp city with a mayor agent.
 	dir := t.TempDir()
+	clearLiveGCEnv(t)
+	t.Setenv("GC_CITY", dir)
 	gcDir := filepath.Join(dir, ".gc")
 	if err := os.MkdirAll(gcDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -2596,12 +2605,6 @@ prompt_template = "prompts/mayor.md"
 		t.Fatal(err)
 	}
 
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-
 	var stdout, stderr bytes.Buffer
 	code := doPrime([]string{"nonexistent"}, &stdout, &stderr)
 	if code != 0 {
@@ -2614,12 +2617,7 @@ prompt_template = "prompts/mayor.md"
 
 func TestDoPrimeNoArgs(t *testing.T) {
 	// Outside any city — should still output default prompt.
-	dir := t.TempDir()
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	clearLiveGCEnv(t)
 
 	var stdout, stderr bytes.Buffer
 	code := doPrime(nil, &stdout, &stderr)
@@ -2635,6 +2633,8 @@ func TestDoPrimeBareName(t *testing.T) {
 	// "gc prime polecat" should find agent with name="polecat" even when
 	// it has dir="myrig" — bare template name lookup for pool agents.
 	dir := t.TempDir()
+	clearLiveGCEnv(t)
+	t.Setenv("GC_CITY", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".gc"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -2662,12 +2662,6 @@ max = 3
 		t.Fatal(err)
 	}
 
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-
 	var stdout, stderr bytes.Buffer
 	code := doPrime([]string{"polecat"}, &stdout, &stderr)
 	if code != 0 {
@@ -2682,6 +2676,8 @@ func TestDoPrimePoolAgentFallback(t *testing.T) {
 	// An explicit pool agent with no prompt_template reads the materialized
 	// pool-worker.md from prompts/ on disk.
 	dir := t.TempDir()
+	clearLiveGCEnv(t)
+	t.Setenv("GC_CITY", dir)
 	if err := materializeBuiltinPrompts(dir); err != nil {
 		t.Fatalf("materializeBuiltinPrompts: %v", err)
 	}
@@ -2698,12 +2694,6 @@ min = 0
 max = -1
 `
 	if err := os.WriteFile(filepath.Join(dir, "city.toml"), []byte(tomlContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2727,6 +2717,15 @@ max = -1
 
 func TestDoPrimeHookPersistsSessionID(t *testing.T) {
 	dir := t.TempDir()
+	clearLiveGCEnv(t)
+	t.Setenv("GC_CITY", dir)
+	t.Setenv("GC_AGENT", "mayor")
+	// Chdir into dir so persistPrimeHookSessionID writes session_id there.
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, ".gc"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -2748,13 +2747,6 @@ prompt_template = "prompts/mayor.md"
 	if err := os.WriteFile(filepath.Join(dir, "city.toml"), []byte(toml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GC_AGENT", "mayor")
 
 	reader, writer, err := os.Pipe()
 	if err != nil {
