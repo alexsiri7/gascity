@@ -14,5 +14,6 @@ func newCostsCmd(stdout, stderr io.Writer) *cobra.Command {
 		Long:  `Commands for viewing and recording agent token usage and costs.`,
 	}
 	cmd.AddCommand(newCostsRecordCmd(stdout, stderr))
+	cmd.AddCommand(newCostsDigestCmd(stdout, stderr))
 	return cmd
 }
