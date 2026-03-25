@@ -1,0 +1,5 @@
+[order]
+description = "Sync from upstream (gastownhall/gascity) into origin/main and rebuild"
+gate = "cooldown"
+interval = "6h"
+exec = "$PACK_DIR/scripts/upstream-sync.sh"

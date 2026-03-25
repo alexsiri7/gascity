@@ -424,6 +424,7 @@ func runProviderProbe(script, cityPath string) bool {
 	cmd.WaitDelay = 2 * time.Second
 	if cityPath != "" {
 		cmd.Env = cityRuntimeProcessEnv(cityPath)
+		cmd.Dir = cityPath
 	}
 	return cmd.Run() == nil
 }
@@ -458,6 +459,7 @@ func runProviderOp(script, cityPath string, args ...string) error {
 	cmd.WaitDelay = 2 * time.Second
 	if cityPath != "" {
 		cmd.Env = cityRuntimeProcessEnv(cityPath)
+		cmd.Dir = cityPath
 	}
 
 	var stderr bytes.Buffer

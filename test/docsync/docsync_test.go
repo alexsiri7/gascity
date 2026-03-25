@@ -134,8 +134,17 @@ func localLinkExists(path string) bool {
 	if _, err := os.Stat(path); err == nil {
 		return true
 	}
-	if filepath.Ext(path) == "" {
+	ext := filepath.Ext(path)
+	if ext == "" {
 		if _, err := os.Stat(path + ".md"); err == nil {
+			return true
+		}
+		if _, err := os.Stat(path + ".mdx"); err == nil {
+			return true
+		}
+	}
+	if ext == ".md" {
+		if _, err := os.Stat(path[:len(path)-3] + ".mdx"); err == nil {
 			return true
 		}
 	}
@@ -258,8 +267,8 @@ func isLowerAlpha(s string) bool {
 
 func TestTutorial01CommandSync(t *testing.T) {
 	root := repoRoot()
-	tutorial := filepath.Join(root, "docs", "tutorials", "01-hello-gas-city.md")
-	txtar := filepath.Join(root, "cmd", "gc", "testdata", "01-hello-gas-city.txtar")
+	tutorial := filepath.Join(root, "docs", "tutorials", "01-beads.md")
+	txtar := filepath.Join(root, "cmd", "gc", "testdata", "01-beads.txtar")
 
 	mdVerbs, err := gcVerbsFromMarkdown(tutorial)
 	if err != nil {
@@ -421,10 +430,7 @@ func TestMintNavigationPagesExist(t *testing.T) {
 	var missing []string
 	for _, page := range pages {
 		path := filepath.Join(root, "docs", filepath.FromSlash(page))
-		if filepath.Ext(path) == "" {
-			path += ".md"
-		}
-		if _, err := os.Stat(path); err != nil {
+		if !localLinkExists(path) {
 			missing = append(missing, page)
 		}
 	}

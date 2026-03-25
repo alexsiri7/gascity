@@ -398,7 +398,15 @@ func TestGcBeadsBdStartUsesRootBeadsDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scriptEnv := append(os.Environ(),
+	// Filter out inherited GC_* env vars that could leak into the script
+	// and cause it to write state to the real city instead of the test dir.
+	var baseEnv []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "GC_") {
+			baseEnv = append(baseEnv, e)
+		}
+	}
+	scriptEnv := append(baseEnv,
 		"HOME="+homeDir,
 		"GIT_CONFIG_GLOBAL="+gitConfig,
 		"GC_CITY_PATH="+cityPath,
@@ -457,6 +465,68 @@ func writeDoltState(cityPath string, state doltRuntimeState) error {
 	data := fmt.Sprintf(`{"running":%t,"pid":%d,"port":%d,"data_dir":%q,"started_at":%q}`,
 		state.Running, state.PID, state.Port, state.DataDir, state.StartedAt)
 	return os.WriteFile(filepath.Join(stateDir, "dolt-state.json"), []byte(data), 0o644)
+}
+
+// TestRunProviderOp_SetsCwdToCityPath verifies that runProviderOp sets the
+// subprocess working directory to cityPath, preventing cwd-inherited database
+// resolution failures in dolt.
+func TestRunProviderOp_SetsCwdToCityPath(t *testing.T) {
+	cityDir := t.TempDir()
+	// Create a script that prints its cwd to stdout.
+	script := filepath.Join(t.TempDir(), "cwd-check.sh")
+	content := "#!/bin/sh\npwd\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// runProviderOp captures stderr, not stdout. We need to verify cmd.Dir
+	// is set. Use a script that writes cwd to a file instead.
+	outFile := filepath.Join(t.TempDir(), "cwd.txt")
+	script2 := filepath.Join(t.TempDir(), "cwd-check2.sh")
+	content2 := "#!/bin/sh\npwd > " + outFile + "\n"
+	if err := os.WriteFile(script2, []byte(content2), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GC_BEADS", "exec:"+script2)
+	if err := runProviderOp(script2, cityDir, "start"); err != nil {
+		t.Fatalf("runProviderOp failed: %v", err)
+	}
+
+	data, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("failed to read cwd output: %v", err)
+	}
+	got := strings.TrimSpace(string(data))
+	if got != cityDir {
+		t.Errorf("runProviderOp cwd = %q, want %q", got, cityDir)
+	}
+}
+
+// TestRunProviderProbe_SetsCwdToCityPath verifies that runProviderProbe sets
+// the subprocess working directory to cityPath.
+func TestRunProviderProbe_SetsCwdToCityPath(t *testing.T) {
+	cityDir := t.TempDir()
+	outFile := filepath.Join(t.TempDir(), "cwd.txt")
+	script := filepath.Join(t.TempDir(), "probe-cwd.sh")
+	content := "#!/bin/sh\npwd > " + outFile + "\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ok := runProviderProbe(script, cityDir)
+	if !ok {
+		t.Fatal("runProviderProbe returned false, expected true")
+	}
+
+	data, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("failed to read cwd output: %v", err)
+	}
+	got := strings.TrimSpace(string(data))
+	if got != cityDir {
+		t.Errorf("runProviderProbe cwd = %q, want %q", got, cityDir)
+	}
 }
 
 // writeTestScript creates a shell script that exits with the given code.

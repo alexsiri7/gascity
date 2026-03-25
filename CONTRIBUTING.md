@@ -3,10 +3,10 @@
 Gas City is experimental software, but the repo is now structured for external
 contributors. Before making changes, read:
 
-- [docs/index.md](docs/index.md)
-- [docs/contributors/README.md](docs/contributors/README.md)
+- [docs/index.mdx](docs/index.mdx)
+- [docs/contributors/index.md](docs/contributors/index.md)
 - [docs/contributors/codebase-map.md](docs/contributors/codebase-map.md)
-- [docs/architecture/README.md](docs/architecture/README.md)
+- [docs/architecture/index.md](docs/architecture/index.md)
 - [TESTING.md](TESTING.md)
 
 ## Getting Started

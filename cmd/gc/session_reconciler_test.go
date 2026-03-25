@@ -179,6 +179,29 @@ func (e *reconcilerTestEnv) createSessionBead(name, template string) beads.Bead 
 	return b
 }
 
+func (e *reconcilerTestEnv) createSessionBeadWithHash(name, template, coreHash string) beads.Bead {
+	meta := map[string]string{
+		"session_name":   name,
+		"agent_name":     name,
+		"template":       template,
+		"config_hash":    coreHash,
+		"live_hash":      runtime.LiveFingerprint(runtime.Config{Command: "test-cmd"}),
+		"generation":     "1",
+		"instance_token": "test-token",
+		"state":          "asleep",
+	}
+	b, err := e.store.Create(beads.Bead{
+		Title:    name,
+		Type:     sessionBeadType,
+		Labels:   []string{sessionBeadLabel},
+		Metadata: meta,
+	})
+	if err != nil {
+		panic("creating test bead: " + err.Error())
+	}
+	return b
+}
+
 func (e *reconcilerTestEnv) reconcile(sessions []beads.Bead) int {
 	cfgNames := configuredSessionNames(e.cfg, "", e.store)
 	return reconcileSessionBeads(
@@ -493,6 +516,41 @@ func TestReconcileSessionBeads_NoDriftWhenHashMatches(t *testing.T) {
 
 	if ds := env.dt.get(session.ID); ds != nil {
 		t.Errorf("expected no drain, got %+v", ds)
+	}
+}
+
+// TestReconcileSessionBeads_NoDriftWithUnexpandedEnvRefs verifies that env
+// values containing $VAR references don't cause false config-drift when the
+// referenced var changes at runtime (e.g., GC_DOLT_PORT on dolt restart).
+// The fingerprint should be computed from the raw (unexpanded) env values.
+func TestReconcileSessionBeads_NoDriftWithUnexpandedEnvRefs(t *testing.T) {
+	// Env with a $VAR reference (not expanded).
+	rawEnv := map[string]string{
+		"GC_BEADS_PORT": "$GC_DOLT_PORT",
+	}
+	cfg := runtime.Config{Command: "test-cmd", Env: rawEnv}
+	hash := runtime.CoreFingerprint(cfg)
+
+	env := newReconcilerTestEnv()
+	env.cfg = &config.City{Agents: []config.Agent{{Name: "worker"}}}
+
+	// Desired state has the same raw env.
+	tp := TemplateParams{
+		Command:      "test-cmd",
+		SessionName:  "worker",
+		TemplateName: "worker",
+		Env:          rawEnv,
+	}
+	env.desiredState["worker"] = tp
+	_ = env.sp.Start(context.Background(), "worker", runtime.Config{Command: "test-cmd"})
+
+	// Session bead stores the hash computed from the same raw env.
+	session := env.createSessionBeadWithHash("worker", "worker", hash)
+
+	env.reconcile([]beads.Bead{session})
+
+	if ds := env.dt.get(session.ID); ds != nil {
+		t.Errorf("expected no drift with unexpanded env refs, got drain: %+v", ds)
 	}
 }
 
@@ -1675,6 +1733,134 @@ func TestReconcileSessionBeads_RestartRequestedNoKeySkipsClear(t *testing.T) {
 	}
 
 	// Session should still be stopped.
+	if sp.IsRunning("worker") {
+		t.Error("session should have been stopped")
+	}
+}
+
+func TestReconcileSessionBeads_DrainAckClearsSessionKey(t *testing.T) {
+	// When drain-ack fires, session_key must be cleared so the next wake
+	// starts a fresh conversation instead of resuming the completed one.
+	store := beads.NewMemStore()
+	sp := runtime.NewFake()
+	clk := &clock.Fake{Time: time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)}
+	cfg := &config.City{Agents: []config.Agent{{Name: "worker"}}}
+	dops := newFakeDrainOps()
+
+	_ = sp.Start(context.Background(), "worker", runtime.Config{Command: "test-cmd"})
+	bead, err := store.Create(beads.Bead{
+		Title:  "worker",
+		Type:   sessionBeadType,
+		Labels: []string{sessionBeadLabel},
+		Metadata: map[string]string{
+			"session_name":        "worker",
+			"agent_name":          "worker",
+			"template":            "worker",
+			"config_hash":         runtime.CoreFingerprint(runtime.Config{Command: "test-cmd"}),
+			"live_hash":           runtime.LiveFingerprint(runtime.Config{Command: "test-cmd"}),
+			"generation":          "1",
+			"instance_token":      "test-token",
+			"state":               "awake",
+			"session_key":         "old-conversation-key",
+			"started_config_hash": "some-hash",
+		},
+	})
+	if err != nil {
+		t.Fatalf("creating test bead: %v", err)
+	}
+
+	desired := map[string]TemplateParams{
+		"worker": {
+			Command:      "test-cmd",
+			SessionName:  "worker",
+			TemplateName: "worker",
+		},
+	}
+
+	// Set the drain-ack flag.
+	_ = dops.setDrainAck("worker")
+
+	var stdout, stderr bytes.Buffer
+	cfgNames := configuredSessionNames(cfg, "", store)
+	reconcileSessionBeads(
+		context.Background(), []beads.Bead{bead}, desired, cfgNames,
+		cfg, sp, store, dops, nil, nil, newDrainTracker(), map[string]int{}, "",
+		nil, clk, events.Discard, 0, 0, 0, &stdout, &stderr,
+	)
+
+	got, err := store.Get(bead.ID)
+	if err != nil {
+		t.Fatalf("getting bead: %v", err)
+	}
+	if got.Metadata["session_key"] != "" {
+		t.Errorf("session_key should be cleared after drain-ack, got %q", got.Metadata["session_key"])
+	}
+	if got.Metadata["started_config_hash"] != "" {
+		t.Errorf("started_config_hash should be cleared after drain-ack, got %q", got.Metadata["started_config_hash"])
+	}
+	if got.Metadata["continuation_reset_pending"] != "true" {
+		t.Errorf("continuation_reset_pending should be \"true\", got %q", got.Metadata["continuation_reset_pending"])
+	}
+	if sp.IsRunning("worker") {
+		t.Error("session should have been stopped")
+	}
+}
+
+func TestReconcileSessionBeads_DrainAckNoKeySkipsClear(t *testing.T) {
+	// When session_key is already empty, drain-ack should still stop the
+	// session but not set continuation_reset_pending.
+	store := beads.NewMemStore()
+	sp := runtime.NewFake()
+	clk := &clock.Fake{Time: time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)}
+	cfg := &config.City{Agents: []config.Agent{{Name: "worker"}}}
+	dops := newFakeDrainOps()
+
+	_ = sp.Start(context.Background(), "worker", runtime.Config{Command: "test-cmd"})
+	bead, err := store.Create(beads.Bead{
+		Title:  "worker",
+		Type:   sessionBeadType,
+		Labels: []string{sessionBeadLabel},
+		Metadata: map[string]string{
+			"session_name":   "worker",
+			"agent_name":     "worker",
+			"template":       "worker",
+			"config_hash":    runtime.CoreFingerprint(runtime.Config{Command: "test-cmd"}),
+			"live_hash":      runtime.LiveFingerprint(runtime.Config{Command: "test-cmd"}),
+			"generation":     "1",
+			"instance_token": "test-token",
+			"state":          "awake",
+			// No session_key — already empty.
+		},
+	})
+	if err != nil {
+		t.Fatalf("creating test bead: %v", err)
+	}
+
+	desired := map[string]TemplateParams{
+		"worker": {
+			Command:      "test-cmd",
+			SessionName:  "worker",
+			TemplateName: "worker",
+		},
+	}
+
+	_ = dops.setDrainAck("worker")
+
+	var stdout, stderr bytes.Buffer
+	cfgNames := configuredSessionNames(cfg, "", store)
+	reconcileSessionBeads(
+		context.Background(), []beads.Bead{bead}, desired, cfgNames,
+		cfg, sp, store, dops, nil, nil, newDrainTracker(), map[string]int{}, "",
+		nil, clk, events.Discard, 0, 0, 0, &stdout, &stderr,
+	)
+
+	got, err := store.Get(bead.ID)
+	if err != nil {
+		t.Fatalf("getting bead: %v", err)
+	}
+	if got.Metadata["continuation_reset_pending"] == "true" {
+		t.Error("continuation_reset_pending should not be set when session_key was already empty")
+	}
 	if sp.IsRunning("worker") {
 		t.Error("session should have been stopped")
 	}
