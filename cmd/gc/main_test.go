@@ -335,6 +335,8 @@ func TestResolveCityFlag(t *testing.T) {
 
 	t.Run("flag_empty_fallback", func(t *testing.T) {
 		// With empty flag, should fall back to cwd-based discovery.
+		// Clear GC_CITY so it doesn't override the cwd-based lookup.
+		t.Setenv("GC_CITY", "")
 		dir := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(dir, ".gc"), 0o755); err != nil {
 			t.Fatal(err)
@@ -2494,6 +2496,8 @@ func TestDoAgentAddWithPromptTemplate(t *testing.T) {
 // --- gc prime tests ---
 
 func TestDoPrimeWithKnownAgent(t *testing.T) {
+	// Clear GC_CITY so doPrime uses cwd-based discovery, not the live city.
+	t.Setenv("GC_CITY", "")
 	// Set up a temp city with a mayor agent that has a prompt_template.
 	dir := t.TempDir()
 	gcDir := filepath.Join(dir, ".gc")
@@ -2537,6 +2541,8 @@ prompt_template = "prompts/mayor.md"
 }
 
 func TestDoPrimeUsesGCAgentEnv(t *testing.T) {
+	// Clear GC_CITY so doPrime uses cwd-based discovery, not the live city.
+	t.Setenv("GC_CITY", "")
 	dir := t.TempDir()
 	gcDir := filepath.Join(dir, ".gc")
 	if err := os.MkdirAll(gcDir, 0o755); err != nil {
@@ -2613,6 +2619,10 @@ prompt_template = "prompts/mayor.md"
 }
 
 func TestDoPrimeNoArgs(t *testing.T) {
+	// Clear GC_CITY and GC_AGENT so doPrime falls back to default prompt
+	// instead of resolving the live city's agent context.
+	t.Setenv("GC_CITY", "")
+	t.Setenv("GC_AGENT", "")
 	// Outside any city — should still output default prompt.
 	dir := t.TempDir()
 	orig, _ := os.Getwd()
@@ -2632,6 +2642,8 @@ func TestDoPrimeNoArgs(t *testing.T) {
 }
 
 func TestDoPrimeBareName(t *testing.T) {
+	// Clear GC_CITY so doPrime uses cwd-based discovery, not the live city.
+	t.Setenv("GC_CITY", "")
 	// "gc prime polecat" should find agent with name="polecat" even when
 	// it has dir="myrig" — bare template name lookup for pool agents.
 	dir := t.TempDir()
@@ -2679,6 +2691,8 @@ max = 3
 }
 
 func TestDoPrimePoolAgentFallback(t *testing.T) {
+	// Clear GC_CITY so doPrime uses cwd-based discovery, not the live city.
+	t.Setenv("GC_CITY", "")
 	// An explicit pool agent with no prompt_template reads the materialized
 	// pool-worker.md from prompts/ on disk.
 	dir := t.TempDir()
@@ -2726,6 +2740,11 @@ max = -1
 }
 
 func TestDoPrimeHookPersistsSessionID(t *testing.T) {
+	// Clear env vars so doPrime uses cwd-based discovery and reads session_id
+	// from stdin rather than the live environment.
+	t.Setenv("GC_CITY", "")
+	t.Setenv("GC_SESSION_ID", "")
+	t.Setenv("CLAUDE_SESSION_ID", "")
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".gc"), 0o755); err != nil {
 		t.Fatal(err)
