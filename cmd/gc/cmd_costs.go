@@ -70,6 +70,7 @@ Time filters apply to the session file's last-modified timestamp.`,
 	cmd.Flags().StringVar(&window, "window", "", "Rolling window (e.g. 1h, 24h, 7d)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output JSON")
 	cmd.AddCommand(newCostsRecordCmd(stdout, stderr))
+	cmd.AddCommand(newCostsDigestCmd(stdout, stderr))
 	return cmd
 }
 
