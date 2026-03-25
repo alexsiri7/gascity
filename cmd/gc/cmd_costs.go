@@ -54,7 +54,8 @@ Time filters apply to the session file's last-modified timestamp.`,
   gc costs --window 2h        # sessions active in the last 2 hours
   gc costs --by-role          # aggregate by agent role
   gc costs --by-rig           # aggregate by rig
-  gc costs --json             # machine-readable JSON`,
+  gc costs --json             # machine-readable JSON
+  gc costs record             # record session usage to daily cost log (Stop hook)`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if cmdCosts(byRole, byRig, today, week, window, jsonOut, stdout, stderr) != 0 {
 				return errExit
@@ -68,6 +69,7 @@ Time filters apply to the session file's last-modified timestamp.`,
 	cmd.Flags().BoolVar(&week, "week", false, "Only sessions active in the last 7 days")
 	cmd.Flags().StringVar(&window, "window", "", "Rolling window (e.g. 1h, 24h, 7d)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output JSON")
+	cmd.AddCommand(newCostsRecordCmd(stdout, stderr))
 	return cmd
 }
 
@@ -363,4 +365,3 @@ func shortModel(model string) string {
 	}
 	return model
 }
-
