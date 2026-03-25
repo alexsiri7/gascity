@@ -252,6 +252,35 @@ func reconcileSessionBeads(
 			continue
 		}
 
+		// Quota detection: session alive but provider account exhausted.
+		// Kill the session so the reconciler restarts it, potentially selecting
+		// a different provider via the random provider strategy.
+		// Unlike crash recovery, no wake failure is recorded — quota is not a
+		// crash and we want immediate restart without quarantine.
+		if alive && stableLongEnough(*session, clk) {
+			if checkQuotaExhausted(*session, cfg, stderr) {
+				_ = store.SetMetadataBatch(session.ID, map[string]string{
+					"session_key": "",
+					"last_woke_at": "",
+				})
+				session.Metadata["session_key"] = ""
+				session.Metadata["last_woke_at"] = ""
+				if err := sp.Stop(name); err != nil {
+					fmt.Fprintf(stderr, "session reconciler: stopping quota-exhausted %s: %v\n", name, err) //nolint:errcheck
+				} else {
+					fmt.Fprintf(stdout, "Stopped quota-exhausted session '%s'\n", name) //nolint:errcheck
+					rec.Record(events.Event{
+						Type:    events.SessionQuotaKilled,
+						Actor:   "gc",
+						Subject: tp.DisplayName(),
+						Message: "provider account quota exhausted",
+					})
+					recordSessionTokens(*session, tp.DisplayName(), cfg, stderr)
+				}
+				continue
+			}
+		}
+
 		// Clear wake failures for sessions that have been stable long enough.
 		if alive && stableLongEnough(*session, clk) {
 			clearWakeFailures(session, store)
@@ -536,6 +565,43 @@ func recordSessionTokens(session beads.Bead, agentName string, cfg *config.City,
 	for _, t := range totals {
 		telemetry.RecordTokenUsage(ctx, agentName, t.Model, t.InputTokens, t.OutputTokens)
 	}
+}
+
+// checkQuotaExhausted returns true if the session's transcript shows that the
+// provider account is quota-exhausted. It reads the tail of the session's JSONL
+// log and checks whether the last few assistant/result entries all contain
+// quota error patterns. Returns false on any error (fail-safe).
+func checkQuotaExhausted(session beads.Bead, cfg *config.City, stderr io.Writer) bool {
+	workDir := session.Metadata["work_dir"]
+	if workDir == "" {
+		return false
+	}
+	if abs, err := filepath.Abs(workDir); err == nil {
+		workDir = abs
+	}
+
+	searchPaths := sessionlog.DefaultSearchPaths()
+	if cfg != nil {
+		searchPaths = sessionlog.MergeSearchPaths(cfg.Daemon.ObservePaths)
+	}
+
+	sessionKey := session.Metadata["session_key"]
+	var sessionFile string
+	if sessionKey != "" {
+		sessionFile = sessionlog.FindSessionFileByID(searchPaths, workDir, sessionKey)
+	} else {
+		sessionFile = sessionlog.FindSessionFile(searchPaths, workDir)
+	}
+	if sessionFile == "" {
+		return false
+	}
+
+	exhausted := sessionlog.ScanForQuotaExhausted(sessionFile, 0)
+	if exhausted {
+		fmt.Fprintf(stderr, "session reconciler: quota exhausted detected for %s (file: %s)\n", //nolint:errcheck
+			session.Metadata["session_name"], sessionFile)
+	}
+	return exhausted
 }
 
 // resolveResumeCommand returns the command to use when resuming a session.
