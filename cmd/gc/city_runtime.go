@@ -64,6 +64,7 @@ type CityRuntime struct {
 	pokeCh           chan struct{}            // non-blocking signal to trigger immediate reconciler tick
 	onStarted        func()
 	onStatus         func(string)
+	checkBudget      func(context.Context, config.BudgetConfig, []string, time.Time, io.Writer, io.Writer) bool // nil when no budget configured
 
 	shutdownOnce   sync.Once
 	logPrefix      string // "gc start" or "gc supervisor"
@@ -96,6 +97,7 @@ type CityRuntimeParams struct {
 	PokeCh           chan struct{}           // may be nil; triggers immediate tick
 	OnStarted        func()                  // called after initial reconciliation succeeds
 	OnStatus         func(string)            // called when init status changes
+	CancelFn         context.CancelFunc      // may be nil; called by budget circuit breaker to stop the city
 
 	LogPrefix      string // "gc start" or "gc supervisor"; defaults to "gc start"
 	Stdout, Stderr io.Writer
@@ -159,6 +161,9 @@ func newCityRuntime(p CityRuntimeParams) *CityRuntime {
 		logPrefix: logPrefix,
 		stdout:    p.Stdout,
 		stderr:    p.Stderr,
+	}
+	if p.CancelFn != nil && p.Cfg.Budget.MaxInputTokens > 0 {
+		cr.checkBudget = newBudgetChecker(p.CancelFn)
 	}
 	cr.svc = workspacesvc.NewManager(&serviceRuntime{cr: cr})
 	if err := cr.svc.Reload(); err != nil {
@@ -317,6 +322,13 @@ func (cr *CityRuntime) tick(
 	cityRoot string,
 	prevPoolRunning *map[string]bool,
 ) {
+	// Token budget circuit breaker: stop the city if usage exceeds threshold.
+	if cr.checkBudget != nil {
+		if cr.checkBudget(ctx, cr.cfg.Budget, cr.cfg.Daemon.ObservePaths, time.Now(), cr.stdout, cr.stderr) {
+			return
+		}
+	}
+
 	// Detect pool instance deaths since last tick.
 	if len(cr.poolDeathHandlers) > 0 {
 		currentRunning, _ := cr.sp.ListRunning("")

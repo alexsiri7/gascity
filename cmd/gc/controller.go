@@ -553,6 +553,7 @@ func runController(
 		PoolDeathHandlers:       poolDeathHandlers,
 		ConvergenceReqCh:        convergenceReqCh,
 		PokeCh:                  pokeCh,
+		CancelFn:                cancel,
 		Stdout:                  stdout,
 		Stderr:                  stderr,
 	})
