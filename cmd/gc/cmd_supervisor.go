@@ -891,6 +891,7 @@ func reconcileCities(
 			PoolSessions:            poolSessions,
 			PoolDeathHandlers:       poolDeathHandlers,
 			PokeCh:                  pokeCh,
+			CancelFn:                cityCancel,
 			OnStarted: func() {
 				cr.UpdateCallback(path, func(m *managedCity) {
 					m.started = true
