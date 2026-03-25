@@ -451,8 +451,10 @@ func TestRetryClosedWait_PreservesNonDepsMetadata(t *testing.T) {
 }
 
 func TestDispatchReadyWaitNudges_EnqueuesDeterministicNudge(t *testing.T) {
+	clearLiveGCEnv(t)
 	t.Setenv("GC_BEADS", "file")
 	dir := t.TempDir()
+	t.Setenv("GC_CITY", dir)
 	store, err := openCityStoreAt(dir)
 	if err != nil {
 		t.Fatalf("openCityStoreAt: %v", err)
@@ -525,8 +527,10 @@ func TestDispatchReadyWaitNudges_EnqueuesDeterministicNudge(t *testing.T) {
 }
 
 func TestDispatchReadyWaitNudges_StartsCodexPoller(t *testing.T) {
+	clearLiveGCEnv(t)
 	t.Setenv("GC_BEADS", "file")
 	dir := t.TempDir()
+	t.Setenv("GC_CITY", dir)
 	store, err := openCityStoreAt(dir)
 	if err != nil {
 		t.Fatalf("openCityStoreAt: %v", err)
@@ -584,8 +588,10 @@ func TestDispatchReadyWaitNudges_StartsCodexPoller(t *testing.T) {
 }
 
 func TestWithdrawQueuedWaitNudges_RemovesQueuedNudge(t *testing.T) {
+	clearLiveGCEnv(t)
 	t.Setenv("GC_BEADS", "file")
 	dir := t.TempDir()
+	t.Setenv("GC_CITY", dir)
 	item := newQueuedNudgeWithOptions("worker", "Wait satisfied.", "wait", time.Now().Add(-time.Minute), queuedNudgeOptions{
 		ID:        "wait-gc-1-1-1",
 		Reference: &nudgeReference{Kind: "bead", ID: "gc-1"},

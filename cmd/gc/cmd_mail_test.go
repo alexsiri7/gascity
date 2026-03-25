@@ -213,6 +213,13 @@ func TestDefaultMailIdentityFallsBackToHumanWithoutAliasSessionOrAgent(t *testin
 }
 
 func TestResolveMailAddressForCommand_AllowsStorelessMailProvider(t *testing.T) {
+	clearLiveGCEnv(t)
+	cityDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cityDir, ".gc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GC_CITY", cityDir)
+	t.Setenv("GC_BEADS", "file")
 	t.Setenv("GC_MAIL", "fake")
 
 	var stderr bytes.Buffer

@@ -19,6 +19,8 @@ func TestOpenStoreAtForCityUsesExplicitCityForExternalRig(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	clearLiveGCEnv(t)
+	t.Setenv("GC_CITY", cityDir)
 	t.Setenv("GC_BEADS", "file")
 
 	store, err := openStoreAtForCity(externalRig, cityDir)

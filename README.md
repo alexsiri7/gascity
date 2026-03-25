@@ -71,21 +71,21 @@ gc session attach mayor
 ```
 
 For the longer walkthrough, start with
-[Tutorial 01](docs/tutorials/01-hello-gas-city.md).
+[Tutorial 01](docs/tutorials/01-beads.md).
 
 ## Documentation
 
 The docs now use a Mintlify structure rooted in [`docs/`](docs/README.md).
 
-- [Docs Home](docs/index.md)
+- [Docs Home](docs/index.mdx)
 - [Installation](docs/getting-started/installation.md)
 - [Quickstart](docs/getting-started/quickstart.md)
 - [Repository Map](docs/getting-started/repository-map.md)
-- [Contributors](docs/contributors/README.md)
-- [Reference](docs/reference/README.md)
-- [Architecture](docs/architecture/README.md)
-- [Design Docs](docs/design/README.md)
-- [Archive](docs/archive/README.md)
+- [Contributors](docs/contributors/index.md)
+- [Reference](docs/reference/index.md)
+- [Architecture](docs/architecture/index.md)
+- [Design Docs](docs/design/index.md)
+- [Archive](docs/archive/index.md)
 
 Preview the docs locally:
 
@@ -110,7 +110,7 @@ npx --yes mint@latest dev
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) and
-[docs/contributors/README.md](docs/contributors/README.md) before opening a
+[docs/contributors/index.md](docs/contributors/index.md) before opening a
 PR.
 
 Useful commands:

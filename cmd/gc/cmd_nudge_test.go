@@ -169,8 +169,10 @@ func TestSendMailNotifyWithProviderStartsCodexPollerWhenQueueingRunningSession(t
 }
 
 func TestResolveConfiguredSingletonAliasTarget(t *testing.T) {
+	clearLiveGCEnv(t)
 	t.Setenv("GC_BEADS", "file")
 	cityDir := t.TempDir()
+	t.Setenv("GC_CITY", cityDir)
 	if err := os.WriteFile(filepath.Join(cityDir, "city.toml"), []byte(`[workspace]
 name = "test-city"
 
