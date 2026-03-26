@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -11,12 +12,22 @@ import (
 
 // bdCommandRunnerForCity centralizes bd subprocess env construction so all
 // GC-managed bd calls resolve Dolt against the same city-scoped runtime.
+// Sets BEADS_DIR to cityPath/.beads so bd uses the city's routing context
+// regardless of what the parent process's BEADS_DIR is set to.
 func bdCommandRunnerForCity(cityPath string) beads.CommandRunner {
-	return beads.ExecCommandRunnerWithEnv(bdRuntimeEnv(cityPath))
+	env := bdRuntimeEnv(cityPath)
+	env["BEADS_DIR"] = filepath.Join(cityPath, ".beads")
+	return beads.ExecCommandRunnerWithEnv(env)
 }
 
+// bdStoreForCity creates a BdStore rooted at dir using the city's Dolt
+// connection. Sets BEADS_DIR to dir/.beads so bd uses dir's routing context
+// for cross-rig lookups — rig .beads/ dirs determine the db/prefix only,
+// not the server connection (which is pinned via BEADS_DOLT_PORT).
 func bdStoreForCity(dir, cityPath string) *beads.BdStore {
-	return beads.NewBdStore(dir, bdCommandRunnerForCity(cityPath))
+	env := bdRuntimeEnv(cityPath)
+	env["BEADS_DIR"] = filepath.Join(dir, ".beads")
+	return beads.NewBdStore(dir, beads.ExecCommandRunnerWithEnv(env))
 }
 
 func bdStoreForDir(dir string) *beads.BdStore {
@@ -30,6 +41,10 @@ func bdRuntimeEnv(cityPath string) map[string]string {
 	}
 	if port := currentDoltPort(cityPath); port != "" {
 		env["GC_DOLT_PORT"] = port
+		// BEADS_DOLT_PORT pins bd's Dolt connection for cross-rig routing:
+		// when bd follows routes.jsonl to a rig dir, it must stay on the
+		// central server instead of picking up a stale rig port file.
+		env["BEADS_DOLT_PORT"] = port
 		return env
 	}
 	// Best-effort recovery for managed cities: if state is stale or missing,
@@ -37,6 +52,7 @@ func bdRuntimeEnv(cityPath string) map[string]string {
 	if err := healthBeadsProvider(cityPath); err == nil {
 		if port := currentDoltPort(cityPath); port != "" {
 			env["GC_DOLT_PORT"] = port
+			env["BEADS_DOLT_PORT"] = port
 		}
 	}
 	return env
