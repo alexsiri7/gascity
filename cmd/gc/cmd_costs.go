@@ -185,6 +185,16 @@ func cmdCosts(byRole, byRig, today, week bool, window string, jsonOut bool, stdo
 	}
 
 	if len(rows) == 0 {
+		if jsonOut {
+			type jsonResult struct {
+				Entries []*costsEntry `json:"entries"`
+				Total   costsEntry    `json:"total"`
+			}
+			enc := json.NewEncoder(stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(jsonResult{Entries: []*costsEntry{}, Total: costsEntry{Name: "TOTAL"}}) //nolint:errcheck
+			return 0
+		}
 		fmt.Fprintln(stdout, "No sessions found.") //nolint:errcheck
 		return 0
 	}
