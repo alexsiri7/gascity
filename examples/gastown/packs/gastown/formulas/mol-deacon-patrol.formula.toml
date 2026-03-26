@@ -46,12 +46,20 @@ between patrol cycles.
 
 Read each step's description before acting — Config values override defaults."""
 formula = "mol-deacon-patrol"
-version = 12
+version = 13
 
 [vars]
 [vars.event_timeout]
 description = "Seconds to wait for events before re-checking (exponential backoff)"
 default = "30"
+
+[vars.polecat_max_runtime_seconds]
+description = "Max polecat session runtime in seconds before flagging (default 2h = 7200s)"
+default = "7200"
+
+[vars.patrol_max_cycle_seconds]
+description = "Max patrol agent (witness/refinery/deacon) cycle time in seconds before flagging (default 30min = 1800s)"
+default = "1800"
 
 [[steps]]
 id = "check-inbox"
@@ -308,9 +316,70 @@ gc mail send mayor/ -s "DOCTOR: <finding>" -m "<details>"
 Close this step after check."""
 
 [[steps]]
+id = "agent-runtime-check"
+title = "Check agent runtimes and token economy"
+needs = ["system-health"]
+description = """
+**Config: polecat_max_runtime_seconds = {{polecat_max_runtime_seconds}}**
+**Config: patrol_max_cycle_seconds = {{patrol_max_cycle_seconds}}**
+
+Monitor agent session lifetimes across the town and flag excessive runtimes.
+Long-running sessions accumulate context → token waste. The deacon assesses
+and recommends; it never kills agents — mayor decides.
+
+**Step 1: List all active sessions:**
+```bash
+gc session list --json
+```
+
+For each session, compute runtime from `started_at` to now.
+
+**Step 2: Classify by role type:**
+
+Infer role from session name pattern (no hardcoded names):
+- Session name contains "polecat": worker agent → flag if runtime > {{polecat_max_runtime_seconds}}s
+- Session name contains "witness", "refinery", or "deacon": patrol agent → flag if runtime > {{patrol_max_cycle_seconds}}s
+- Other sessions: skip (use judgment)
+
+**Step 3: Send alerts by severity:**
+
+**Soft alert** — approaching threshold (50–100% of limit), not yet over:
+```bash
+gc nudge mayor/ "Token economy: <rig>/<role> running Xh — approaching context limit"
+```
+
+**Hard alert** — clearly over threshold:
+```bash
+gc mail send mayor/ -s "Token economy: <rig>/<role> running Xh [FLAG]" \
+  -m "$(cat <<'EOF'
+Session: <name>
+Runtime: <duration>
+Threshold: <threshold>
+Recommendation: Context likely bloated. Consider restarting to free tokens.
+Action: Mayor decides — do NOT kill this agent.
+EOF
+)"
+```
+
+**All healthy:** Log summary for observability. No alerts needed.
+
+**Step 4: Check for thrashing (rapid restarts):**
+
+Look for many recently-created polecat sessions (< 5min old) across the
+same rig. Multiple brand-new sessions = possible crash loop or config issue.
+
+If thrashing detected:
+```bash
+gc nudge mayor/ "Thrashing: <rig>/polecats — multiple new sessions detected, possible crash loop"
+```
+
+**Exit criteria:** All sessions assessed. Alerts sent for violations.
+Or no active sessions found."""
+
+[[steps]]
 id = "next-iteration"
 title = "Pour next iteration and loop"
-needs = ["system-health"]
+needs = ["agent-runtime-check"]
 description = """
 **Config: event_timeout = {{event_timeout}}**
 
