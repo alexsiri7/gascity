@@ -220,6 +220,8 @@ type AgentOverride struct {
 	Nudge *string `toml:"nudge,omitempty"`
 	// IdleTimeout overrides the idle timeout duration string (e.g., "30s", "5m", "1h").
 	IdleTimeout *string `toml:"idle_timeout,omitempty"`
+	// StuckTimeout overrides the stuck timeout duration string (e.g., "30m", "2h").
+	StuckTimeout *string `toml:"stuck_timeout,omitempty"`
 	// InstallAgentHooks overrides the agent's install_agent_hooks list.
 	InstallAgentHooks []string `toml:"install_agent_hooks,omitempty"`
 	// HooksInstalled overrides automatic hook detection.
@@ -1120,6 +1122,12 @@ type Agent struct {
 	// the controller kills and restarts it. Duration string (e.g., "15m", "1h").
 	// Empty (default) disables idle checking.
 	IdleTimeout string `toml:"idle_timeout,omitempty"`
+	// StuckTimeout is the maximum wall-clock time an agent session can run
+	// since it was last woken before the controller considers it stuck and
+	// kills it for a fresh restart. Catches agents in infinite thinking loops
+	// or quota-exhausted states where output activity is still occurring.
+	// Duration string (e.g., "30m", "2h"). Empty (default) disables stuck checking.
+	StuckTimeout string `toml:"stuck_timeout,omitempty"`
 	// InstallAgentHooks overrides workspace-level install_agent_hooks for this agent.
 	// When set, replaces (not adds to) the workspace default.
 	InstallAgentHooks []string `toml:"install_agent_hooks,omitempty"`
@@ -1202,6 +1210,19 @@ func (a *Agent) IdleTimeoutDuration() time.Duration {
 		return 0
 	}
 	d, err := time.ParseDuration(a.IdleTimeout)
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
+// StuckTimeoutDuration returns the stuck timeout as a time.Duration.
+// Returns 0 if empty or unparseable (disabled).
+func (a *Agent) StuckTimeoutDuration() time.Duration {
+	if a.StuckTimeout == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(a.StuckTimeout)
 	if err != nil {
 		return 0
 	}

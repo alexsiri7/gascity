@@ -48,6 +48,7 @@ const (
 	ProviderSwapped      = "provider.swapped"
 	SessionStartupDead   = "session.startup_dead"
 	SessionQuotaKilled   = "session.quota_killed"
+	SessionStuckKilled   = "session.stuck_killed"
 )
 
 // Event is a single recorded occurrence in the system.

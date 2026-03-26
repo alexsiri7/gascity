@@ -177,6 +177,41 @@ func buildIdleTracker(cfg *config.City, cityName, cityPath string, sp runtime.Pr
 	return it
 }
 
+// buildStuckTracker creates a stuckTracker from the config, populating
+// timeouts for agents that have stuck_timeout set. Returns nil if no
+// agents use stuck timeout (disabled).
+func buildStuckTracker(cfg *config.City, cityName, cityPath string, sp runtime.Provider) stuckTracker {
+	var hasAny bool
+	st := cfg.Workspace.SessionTemplate
+	for _, a := range cfg.Agents {
+		if a.StuckTimeoutDuration() > 0 {
+			hasAny = true
+			break
+		}
+	}
+	if !hasAny {
+		return nil
+	}
+	tracker := newStuckTracker()
+	for _, a := range cfg.Agents {
+		timeout := a.StuckTimeoutDuration()
+		if timeout <= 0 {
+			continue
+		}
+		pool := a.EffectivePool()
+		if a.IsPool() && pool.IsMultiInstance() {
+			for _, qualifiedInstance := range discoverPoolInstances(a.Name, a.Dir, pool, cityName, st, sp) {
+				sn := cliSessionName(cityPath, cityName, qualifiedInstance, st)
+				tracker.setTimeout(sn, timeout)
+			}
+		} else {
+			sn := cliSessionName(cityPath, cityName, a.QualifiedName(), st)
+			tracker.setTimeout(sn, timeout)
+		}
+	}
+	return tracker
+}
+
 func newStartCmd(stdout, stderr io.Writer) *cobra.Command {
 	var foregroundMode bool
 	cmd := &cobra.Command{
@@ -565,7 +600,7 @@ func doStartStandalone(args []string, controllerMode bool, stdout, stderr io.Wri
 	reconcileSessionBeads(
 		sigCtx, open, ds, cfgNames, cfg, sp, oneShotStore,
 		nil, nil, nil, dt, poolDesired, cityName,
-		nil, clock.Real{}, recorder, cfg.Session.StartupTimeoutDuration(), 0, 0,
+		nil, nil, clock.Real{}, recorder, cfg.Session.StartupTimeoutDuration(), 0, 0,
 		stdout, stderr,
 	)
 

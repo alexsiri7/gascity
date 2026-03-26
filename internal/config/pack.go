@@ -818,6 +818,9 @@ func applyAgentOverride(a *Agent, ov *AgentOverride) {
 	if ov.IdleTimeout != nil {
 		a.IdleTimeout = *ov.IdleTimeout
 	}
+	if ov.StuckTimeout != nil {
+		a.StuckTimeout = *ov.StuckTimeout
+	}
 	if len(ov.InstallAgentHooks) > 0 {
 		a.InstallAgentHooks = append([]string(nil), ov.InstallAgentHooks...)
 	}

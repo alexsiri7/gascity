@@ -41,6 +41,7 @@ type CityRuntime struct {
 	dops drainOps
 	ct   crashTracker
 	it   idleTracker
+	st   stuckTracker
 	wg   wispGC
 	od   orderDispatcher
 
@@ -109,6 +110,7 @@ func newCityRuntime(p CityRuntimeParams) *CityRuntime {
 	}
 
 	it := buildIdleTracker(p.Cfg, p.CityName, p.CityPath, p.SP)
+	st := buildStuckTracker(p.Cfg, p.CityName, p.CityPath, p.SP)
 
 	var wg wispGC
 	if p.Cfg.Daemon.WispGCEnabled() {
@@ -138,6 +140,7 @@ func newCityRuntime(p CityRuntimeParams) *CityRuntime {
 		dops:              p.Dops,
 		ct:                ct,
 		it:                it,
+		st:                st,
 		wg:                wg,
 		od:                od,
 		rec:               p.Rec,
@@ -485,6 +488,7 @@ func (cr *CityRuntime) reloadConfig(
 	}
 
 	cr.it = buildIdleTracker(nextCfg, cr.cityName, cr.cityPath, nextSp)
+	cr.st = buildStuckTracker(nextCfg, cr.cityName, cr.cityPath, nextSp)
 
 	if nextCfg.Daemon.WispGCEnabled() {
 		cr.wg = newWispGC(nextCfg.Daemon.WispGCIntervalDuration(),
@@ -570,7 +574,7 @@ func (cr *CityRuntime) beadReconcileTick(ctx context.Context, desiredState map[s
 		ctx, open, desiredState, cfgNames, cr.cfg, cr.sp, store,
 		cr.dops,
 		workSet, readyWaitSet, cr.sessionDrains, poolDesired, cityName,
-		cr.it, clock.Real{}, cr.rec, cr.cfg.Session.StartupTimeoutDuration(),
+		cr.it, cr.st, clock.Real{}, cr.rec, cr.cfg.Session.StartupTimeoutDuration(),
 		cr.cfg.Daemon.StartupProbeTimeoutDuration(),
 		cr.cfg.Daemon.DriftDrainTimeoutDuration(),
 		cr.stdout, cr.stderr,

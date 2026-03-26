@@ -83,6 +83,7 @@ Agent defines a configured agent in the city.
 | `work_query` | string |  |  | WorkQuery is the shell command to find available work for this agent. Used by gc hook and available in prompt templates as &#123;&#123;.WorkQuery&#125;&#125;. Also used by the controller's reconciler to detect pending work (WakeWork reason): non-empty output means work exists, which wakes sleeping sessions even without WakeConfig. Default for fixed agents: "bd ready --assignee=&lt;qualified-name&gt;". Default for pool agents: "bd ready --label=pool:&lt;qualified-name&gt; --limit=1". Override to integrate with external task systems. |
 | `sling_query` | string |  |  | SlingQuery is the command template to route a bead to this agent/pool. Used by gc sling to make a bead visible to the target's work_query. The placeholder &#123;&#125; is replaced with the bead ID at runtime. Default for fixed agents: "bd update &#123;&#125; --assignee=&lt;qualified-name&gt;". Default for pool agents: "bd update &#123;&#125; --add-label=pool:&lt;qualified-name&gt;". Pool agents must set both sling_query and work_query, or neither. |
 | `idle_timeout` | string |  |  | IdleTimeout is the maximum time an agent session can be inactive before the controller kills and restarts it. Duration string (e.g., "15m", "1h"). Empty (default) disables idle checking. |
+| `stuck_timeout` | string |  |  | StuckTimeout is the maximum wall-clock time an agent session can run since it was last woken before the controller considers it stuck and kills it for a fresh restart. Catches agents in infinite thinking loops or quota-exhausted states where output activity is still occurring. Duration string (e.g., "30m", "2h"). Empty (default) disables stuck checking. |
 | `install_agent_hooks` | []string |  |  | InstallAgentHooks overrides workspace-level install_agent_hooks for this agent. When set, replaces (not adds to) the workspace default. |
 | `hooks_installed` | boolean |  |  | HooksInstalled overrides automatic hook detection. Set to true when hooks are manually installed (e.g., merged into the project's own hook config) and auto-installation via install_agent_hooks is not desired. When true, the agent is treated as hook-enabled for startup behavior: no prime instruction in beacon and no delayed nudge. Interacts with install_agent_hooks — set this instead when hooks are pre-installed. |
 | `session_setup` | []string |  |  | SessionSetup is a list of shell commands run after session creation. Each command is a template string supporting placeholders: &#123;&#123;.Session&#125;&#125;, &#123;&#123;.Agent&#125;&#125;, &#123;&#123;.AgentBase&#125;&#125;, &#123;&#123;.Rig&#125;&#125;, &#123;&#123;.RigRoot&#125;&#125;, &#123;&#123;.CityRoot&#125;&#125;, &#123;&#123;.CityName&#125;&#125;, &#123;&#123;.WorkDir&#125;&#125;. Commands run in gc's process (not inside the agent session) via sh -c. |
@@ -131,6 +132,7 @@ AgentOverride modifies a pack-stamped agent for a specific rig.
 | `start_command` | string |  |  | StartCommand overrides the start command. |
 | `nudge` | string |  |  | Nudge overrides the nudge text. |
 | `idle_timeout` | string |  |  | IdleTimeout overrides the idle timeout duration string (e.g., "30s", "5m", "1h"). |
+| `stuck_timeout` | string |  |  | StuckTimeout overrides the stuck timeout duration string (e.g., "30m", "2h"). |
 | `install_agent_hooks` | []string |  |  | InstallAgentHooks overrides the agent's install_agent_hooks list. |
 | `hooks_installed` | boolean |  |  | HooksInstalled overrides automatic hook detection. |
 | `session_setup` | []string |  |  | SessionSetup overrides the agent's session_setup commands. |
@@ -172,6 +174,7 @@ AgentPatch modifies an existing agent identified by (Dir, Name).
 | `start_command` | string |  |  | StartCommand overrides the start command. |
 | `nudge` | string |  |  | Nudge overrides the nudge text. |
 | `idle_timeout` | string |  |  | IdleTimeout overrides the idle timeout. Duration string (e.g., "30s", "5m", "1h"). |
+| `stuck_timeout` | string |  |  | StuckTimeout overrides the stuck timeout. Duration string (e.g., "30m", "2h"). |
 | `install_agent_hooks` | []string |  |  | InstallAgentHooks overrides the agent's install_agent_hooks list. |
 | `hooks_installed` | boolean |  |  | HooksInstalled overrides automatic hook detection. |
 | `session_setup` | []string |  |  | SessionSetup overrides the agent's session_setup commands. |

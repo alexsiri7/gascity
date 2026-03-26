@@ -179,6 +179,10 @@
           "type": "string",
           "description": "IdleTimeout is the maximum time an agent session can be inactive before\nthe controller kills and restarts it. Duration string (e.g., \"15m\", \"1h\").\nEmpty (default) disables idle checking."
         },
+        "stuck_timeout": {
+          "type": "string",
+          "description": "StuckTimeout is the maximum wall-clock time an agent session can run\nsince it was last woken before the controller considers it stuck and\nkills it for a fresh restart. Catches agents in infinite thinking loops\nor quota-exhausted states where output activity is still occurring.\nDuration string (e.g., \"30m\", \"2h\"). Empty (default) disables stuck checking."
+        },
         "install_agent_hooks": {
           "items": {
             "type": "string"
@@ -373,6 +377,10 @@
           "type": "string",
           "description": "IdleTimeout overrides the idle timeout duration string (e.g., \"30s\", \"5m\", \"1h\")."
         },
+        "stuck_timeout": {
+          "type": "string",
+          "description": "StuckTimeout overrides the stuck timeout duration string (e.g., \"30m\", \"2h\")."
+        },
         "install_agent_hooks": {
           "items": {
             "type": "string"
@@ -564,6 +572,10 @@
         "idle_timeout": {
           "type": "string",
           "description": "IdleTimeout overrides the idle timeout. Duration string (e.g., \"30s\", \"5m\", \"1h\")."
+        },
+        "stuck_timeout": {
+          "type": "string",
+          "description": "StuckTimeout overrides the stuck timeout. Duration string (e.g., \"30m\", \"2h\")."
         },
         "install_agent_hooks": {
           "items": {

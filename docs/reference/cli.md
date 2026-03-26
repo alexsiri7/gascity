@@ -25,6 +25,7 @@ gc [flags]
 | [gc config](#gc-config) | Inspect and validate city configuration |
 | [gc converge](#gc-converge) | Manage convergence loops (bounded iterative refinement) |
 | [gc convoy](#gc-convoy) | Manage convoys (batch work tracking) |
+| [gc costs](#gc-costs) | Show token usage across agents and rigs |
 | [gc dashboard](#gc-dashboard) | Web dashboard for monitoring the city |
 | [gc doctor](#gc-doctor) | Check workspace health |
 | [gc dolt](#gc-dolt) | Commands from the dolt pack |
@@ -555,6 +556,88 @@ feature-branch formulas such as mol-polecat-work.
 ```
 gc convoy target <convoy-id> <branch>
 ```
+
+## gc costs
+
+Scan Claude JSONL session transcripts and report token usage.
+
+Reads ~/.claude/projects/**/*.jsonl plus any [daemon] observe_paths.
+Session names (rig/role) are resolved via the bead store when available.
+
+Time filters apply to the session file's last-modified timestamp.
+
+```
+gc costs [flags]
+```
+
+**Example:**
+
+```
+gc costs                    # all sessions, one row per session
+  gc costs --today            # sessions active today (UTC)
+  gc costs --week             # sessions active in the last 7 days
+  gc costs --window 2h        # sessions active in the last 2 hours
+  gc costs --by-role          # aggregate by agent role
+  gc costs --by-rig           # aggregate by rig
+  gc costs --json             # machine-readable JSON
+  gc costs record             # record session usage to daily cost log (Stop hook)
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--by-rig` | bool |  | Aggregate by rig |
+| `--by-role` | bool |  | Aggregate by agent role |
+| `--json` | bool |  | Output JSON |
+| `--today` | bool |  | Only sessions active today (UTC) |
+| `--week` | bool |  | Only sessions active in the last 7 days |
+| `--window` | string |  | Rolling window (e.g. 1h, 24h, 7d) |
+
+| Subcommand | Description |
+|------------|-------------|
+| [gc costs digest](#gc-costs-digest) | Show a daily/weekly token usage summary |
+| [gc costs record](#gc-costs-record) | Record per-session token usage to the daily cost log (Stop hook) |
+
+## gc costs digest
+
+Reads cost log files written by the Stop hook
+(~/.gc/runtime/costs/YYYY-MM-DD.jsonl) and prints a formatted summary.
+
+--today (default): reads today's log
+--week: reads the last 7 daily files
+
+Output groups usage By Role and By Rig, with totals at the bottom.
+Use --json to get machine-readable output.
+
+```
+gc costs digest [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--json` | bool |  | Output as JSON |
+| `--today` | bool |  | Show today's token usage (default) |
+| `--week` | bool |  | Show the last 7 days of token usage |
+
+## gc costs record
+
+Reads a session's JSONL transcript, sums token usage across the
+main session and all subagent files, and appends a record to the
+daily cost log at &#123;city&#125;/.gc/runtime/costs/YYYY-MM-DD.jsonl.
+
+Designed for use as a Stop hook. The session file path is resolved from:
+  1. --session-file flag
+  2. transcript_path in the JSON payload on stdin (Claude Code Stop hook)
+  3. $GC_SESSION_ID / $CLAUDE_SESSION_ID + working directory lookup
+
+Always exits 0 — failures are logged to stderr but do not block the hook.
+
+```
+gc costs record [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--session-file` | string |  | Path to session JSONL file (overrides stdin/env lookup) |
 
 ## gc dashboard
 

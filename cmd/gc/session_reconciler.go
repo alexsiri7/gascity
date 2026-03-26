@@ -133,6 +133,7 @@ func reconcileSessionBeads(
 	poolDesired map[string]int,
 	cityName string,
 	it idleTracker,
+	st stuckTracker,
 	clk clock.Clock,
 	rec events.Recorder,
 	startupTimeout time.Duration,
@@ -443,6 +444,41 @@ func reconcileSessionBeads(
 				})
 				session.Metadata["state"] = "asleep"
 				session.Metadata["last_woke_at"] = ""
+				alive = false
+			}
+			// Fall through to wakeReasons — it will re-wake immediately if config present
+		}
+
+		// Stuck timeout: restart sessions alive longer than configured threshold
+		// since their last wake. Catches infinite thinking loops and similar
+		// runaway states where idle_timeout would not trigger (the agent is
+		// generating output, so session_activity stays recent). Clears
+		// session_key to force a fresh conversation rather than resuming
+		// the stuck context.
+		if st != nil && alive && st.checkStuck(*session, clk.Now()) {
+			fmt.Fprintf(stderr, "session reconciler: stuck timeout for %s\n", tp.DisplayName()) //nolint:errcheck // best-effort stderr
+			if err := sp.Stop(name); err != nil {
+				fmt.Fprintf(stderr, "session reconciler: stopping stuck %s: %v\n", name, err) //nolint:errcheck // best-effort stderr
+			} else {
+				_ = sp.ClearScrollback(name)
+				rec.Record(events.Event{
+					Type:    events.SessionStuckKilled,
+					Actor:   "gc",
+					Subject: tp.DisplayName(),
+				})
+				telemetry.RecordAgentStuckKill(context.Background(), tp.DisplayName())
+				recordSessionTokens(*session, tp.DisplayName(), cfg, stderr)
+				// Clear session_key so the next wake starts a fresh conversation
+				// rather than resuming the stuck loop.
+				_ = store.SetMetadataBatch(session.ID, map[string]string{
+					"state":       "asleep",
+					"last_woke_at": "",
+					"sleep_reason": "stuck-timeout",
+					"session_key":  "",
+				})
+				session.Metadata["state"] = "asleep"
+				session.Metadata["last_woke_at"] = ""
+				session.Metadata["session_key"] = ""
 				alive = false
 			}
 			// Fall through to wakeReasons — it will re-wake immediately if config present
