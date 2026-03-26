@@ -181,9 +181,77 @@ patterns of failure).
 Close this step after assessment."""
 
 [[steps]]
+id = "token-exhaustion-check"
+title = "Check for token exhaustion and quota issues"
+needs = ["health-scan"]
+description = """
+Detect agents that have hit token limits, context window exhaustion, or
+provider-level quota issues. This is a work-layer judgment: was an agent
+cut short due to resource limits rather than completing normally?
+
+**What to detect:**
+
+1. **Context window exhaustion** — agent session exited or stalled due to
+   hitting its context window (look for 'context window', 'token limit',
+   'max tokens' in session output).
+
+2. **Provider quota exhaustion** — provider-level quota hit causing 401
+   errors or quota-exceeded messages. Previously observed in annie rig
+   (gc-dt238b).
+
+3. **Abnormally high token burn** — agent consuming tokens at a rate
+   significantly above baseline for its role.
+
+**Step 1: Inspect active rig agent sessions**
+
+```bash
+gc rig status
+```
+
+For each active rig, check recent session output in tmux:
+```bash
+gc logs <rig>/<role> --tail=50
+```
+
+Or inspect tmux pane content for the session directly.
+
+Look for patterns in recent output:
+- `context window` / `token limit` / `max tokens` — exhaustion signal
+- `401` / `quota` / `rate limit` / `insufficient_quota` — quota signal
+- Abnormally rapid wisp cycling or session restarts — high burn signal
+
+**Step 2: On detection, take action**
+
+Do NOT restart the agent directly — the controller handles restarts.
+Mayor decides if intervention is needed.
+
+For each confirmed exhaustion event:
+
+```bash
+# File a bead for tracking
+bd create "Token exhaustion: <rig>/<role>" -t bug -p 1
+
+# Alert mayor
+gc mail send mayor/ -s "ESCALATION: <rig>/<role> out of tokens [HIGH]" -m "$(cat <<'EOF'
+Detected token exhaustion in <rig>/<role>.
+Type: <out-of-tokens|quota|high-burn>
+Evidence: <paste relevant log lines>
+Session: <session name if known>
+EOF
+)"
+```
+
+**Step 3: If no issues found**
+
+Log `Token exhaustion check: OK` and close.
+
+**Exit criteria:** All active agent sessions checked, issues filed and
+escalated or clean bill of health recorded."""
+
+[[steps]]
 id = "utility-agent-health"
 title = "Check utility agent (dog) health"
-needs = ["health-scan"]
+needs = ["token-exhaustion-check"]
 description = """
 Detect utility agents (dogs) that are alive but stuck on their work.
 
