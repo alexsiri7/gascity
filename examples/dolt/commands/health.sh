@@ -71,7 +71,7 @@ if [ -d "$data_dir" ] && [ "$server_running" = true ]; then
     open_beads=0
     for meta in "$GC_CITY_PATH"/.beads/metadata.json "$GC_CITY_PATH"/rigs/*/.beads/metadata.json; do
       [ -f "$meta" ] || continue
-      db=$(grep -o '"dolt_database"[[:space:]]*:[[:space:]]*"[^"]*"' "$meta" 2>/dev/null | sed 's/.*"//;s/"//' || true)
+      db=$(grep -o '"dolt_database"[[:space:]]*:[[:space:]]*"[^"]*"' "$meta" 2>/dev/null | grep -o '"[^"]*"$' | tr -d '"' || true)
       if [ "$db" = "$name" ]; then
         beads_dir="$(dirname "$meta")"
         if [ -f "$beads_dir/beads.jsonl" ]; then
@@ -111,7 +111,7 @@ if [ -d "$data_dir" ]; then
   referenced=""
   for meta in "$GC_CITY_PATH"/.beads/metadata.json "$GC_CITY_PATH"/rigs/*/.beads/metadata.json; do
     [ -f "$meta" ] || continue
-    db=$(grep -o '"dolt_database"[[:space:]]*:[[:space:]]*"[^"]*"' "$meta" 2>/dev/null | sed 's/.*"//;s/"//' || true)
+    db=$(grep -o '"dolt_database"[[:space:]]*:[[:space:]]*"[^"]*"' "$meta" 2>/dev/null | grep -o '"[^"]*"$' | tr -d '"' || true)
     [ -n "$db" ] && referenced="$referenced $db "
   done
   for d in "$data_dir"/*/; do
