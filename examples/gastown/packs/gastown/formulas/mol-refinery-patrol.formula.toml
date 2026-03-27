@@ -36,6 +36,10 @@ version = 1
 description = "Whether to run tests before merging"
 default = "true"
 
+[vars.docs_check]
+description = "If 'true', reject branches that change code without updating docs/. Empty or 'false' = skip."
+default = ""
+
 [vars.setup_command]
 description = "Setup/install command (e.g., pnpm install). Empty = skip."
 default = ""
@@ -186,6 +190,7 @@ description = """
 **Config: typecheck_command = {{typecheck_command}}**
 **Config: lint_command = {{lint_command}}**
 **Config: build_command = {{build_command}}**
+**Config: docs_check = {{docs_check}}**
 
 Run each configured check in order (skip empty ones silently):
 ```bash
@@ -201,6 +206,15 @@ If run_tests = "true":
 ```
 
 If run_tests = "false": skip tests entirely.
+
+If docs_check = "true": check whether the branch modifies code files
+without also updating docs/. Run:
+```bash
+git diff --name-only origin/$TARGET...HEAD
+```
+If the diff contains code changes (src/, lib/, cmd/, internal/, etc.) but
+NO changes under docs/, this is a docs check failure. Record it as such.
+The handle-failures step will reject the branch back to the pool.
 
 Track results: which checks ran, pass/fail, specific failures.
 Close this step when all checks complete (pass or fail)."""

@@ -37,6 +37,7 @@ scope = "city"
 work_dir = ".gc/agents/mayor"
 prompt_template = "prompts/mayor.md.tmpl"
 nudge = "Check mail and hook status, then act accordingly."
+work_query = "gc mail inbox mayor 2>/dev/null | grep -v 'No unread messages'"
 overlay_dir = "overlays/default"
 idle_timeout = "1h"
 session_live = [
