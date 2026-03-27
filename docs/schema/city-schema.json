@@ -100,6 +100,21 @@
           "type": "string",
           "description": "Provider names the provider preset to use for this agent."
         },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Providers is a list of provider names to choose from at startup.\nWhen non-empty, overrides Provider. Selection is controlled by ProviderStrategy."
+        },
+        "provider_strategy": {
+          "type": "string",
+          "enum": [
+            "first",
+            "random"
+          ],
+          "description": "ProviderStrategy controls how a provider is selected from the Providers list.\n\"random\" picks uniformly at random; default (\"\" or \"first\") picks the first entry."
+        },
         "start_command": {
           "type": "string",
           "description": "StartCommand overrides the provider's command for this agent."
@@ -343,6 +358,21 @@
           "type": "string",
           "description": "Provider overrides the provider name."
         },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Providers overrides the providers list."
+        },
+        "provider_strategy": {
+          "type": "string",
+          "enum": [
+            "first",
+            "random"
+          ],
+          "description": "ProviderStrategy overrides the provider selection strategy."
+        },
         "start_command": {
           "type": "string",
           "description": "StartCommand overrides the start command."
@@ -527,6 +557,21 @@
         "provider": {
           "type": "string",
           "description": "Provider overrides the provider name."
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Providers overrides the providers list."
+        },
+        "provider_strategy": {
+          "type": "string",
+          "enum": [
+            "first",
+            "random"
+          ],
+          "description": "ProviderStrategy overrides the provider selection strategy."
         },
         "start_command": {
           "type": "string",
