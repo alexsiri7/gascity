@@ -667,6 +667,22 @@
       "type": "object",
       "description": "BeadsConfig holds bead store settings."
     },
+    "BudgetConfig": {
+      "properties": {
+        "max_input_tokens": {
+          "type": "integer",
+          "description": "MaxInputTokens is the rolling-window input token limit.\n0 means disabled. Input tokens include cache reads and cache writes."
+        },
+        "window": {
+          "type": "string",
+          "description": "Window is the rolling time window for token summation.\nDuration string (e.g., \"1h\", \"24h\"). Defaults to \"1h\".",
+          "default": "1h"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "BudgetConfig holds token budget circuit breaker settings."
+    },
     "ChatSessionsConfig": {
       "properties": {
         "idle_timeout": {
@@ -777,6 +793,10 @@
         "convergence": {
           "$ref": "#/$defs/ConvergenceConfig",
           "description": "Convergence configures convergence loop limits."
+        },
+        "budget": {
+          "$ref": "#/$defs/BudgetConfig",
+          "description": "Budget configures the token budget circuit breaker."
         },
         "service": {
           "items": {
