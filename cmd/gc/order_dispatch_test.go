@@ -496,6 +496,77 @@ func TestEffectiveTimeout(t *testing.T) {
 	}
 }
 
+// TestOrderDispatchDrainBlocksUntilClose verifies that Drain() waits for
+// in-flight dispatchOne goroutines to complete, ensuring the deferred
+// tracking-bead Close runs before the caller returns. This is the regression
+// test for the one-shot controller race: process exit before goroutine Close.
+func TestOrderDispatchDrainBlocksUntilClose(t *testing.T) {
+	store := beads.NewMemStore()
+
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+
+	fakeExec := func(_ context.Context, _, _ string, _ []string) ([]byte, error) {
+		close(started)
+		<-unblock // block until test lets us proceed
+		return nil, nil
+	}
+
+	aa := []orders.Order{{
+		Name:     "slow-exec",
+		Gate:     "cooldown",
+		Interval: "1m",
+		Exec:     "scripts/slow.sh",
+	}}
+	ad := buildOrderDispatcherFromListExec(aa, store, nil, noopRunner, fakeExec, nil)
+	if ad == nil {
+		t.Fatal("expected non-nil dispatcher")
+	}
+
+	ad.dispatch(context.Background(), t.TempDir(), time.Now())
+
+	// Wait for goroutine to start so we know it's in-flight.
+	<-started
+
+	// Drain must not return until we unblock the goroutine.
+	drained := make(chan struct{})
+	go func() {
+		ad.Drain()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		t.Fatal("Drain returned before goroutine completed")
+	case <-time.After(50 * time.Millisecond):
+		// expected: Drain is still blocking
+	}
+
+	close(unblock)
+
+	select {
+	case <-drained:
+		// expected: Drain returned after goroutine completed
+	case <-time.After(2 * time.Second):
+		t.Fatal("Drain did not return after goroutine completed")
+	}
+
+	// Verify the tracking bead was closed (status == "closed").
+	all, _ := store.List()
+	if len(all) == 0 {
+		t.Fatal("expected tracking bead")
+	}
+	closed := false
+	for _, b := range all {
+		if b.Status == "closed" {
+			closed = true
+		}
+	}
+	if !closed {
+		t.Error("tracking bead was not closed after Drain")
+	}
+}
+
 // --- helpers ---
 
 // noopRunner is a CommandRunner that always succeeds.

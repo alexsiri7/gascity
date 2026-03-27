@@ -305,6 +305,11 @@ func (cr *CityRuntime) run(ctx context.Context) {
 			reply := cr.safeHandleConvergenceRequest(ctx, req)
 			req.replyCh <- reply
 		case <-ctx.Done():
+			// Drain in-flight order dispatch goroutines so deferred
+			// tracking-bead closes run before the process exits.
+			if cr.od != nil {
+				cr.od.Drain()
+			}
 			return
 		}
 	}
