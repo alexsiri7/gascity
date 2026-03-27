@@ -55,6 +55,11 @@ func TestNoBdExecOutsideBeads(t *testing.T) {
 			if base == ".git" || base == "vendor" || base == ".claude" || strings.HasPrefix(base, ".beads-src") {
 				return filepath.SkipDir
 			}
+			// Skip git worktrees: linked worktrees created by polecats contain
+			// copies of the codebase that would produce false-positive violations.
+			if base == "worktrees" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {
