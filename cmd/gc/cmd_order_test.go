@@ -299,7 +299,7 @@ func TestOrderRun(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := doOrderRun(aa, "digest", "", "/city", fakeRunner, store, nil, &stdout, &stderr)
+	code := doOrderRun(aa, "digest", "", "/city", fakeRunner, store, nil, nil, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("doOrderRun = %d, want 0; stderr: %s", code, stderr.String())
 	}
@@ -330,7 +330,7 @@ func TestOrderRunNoPool(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := doOrderRun(aa, "cleanup", "", "/city", fakeRunner, store, nil, &stdout, &stderr)
+	code := doOrderRun(aa, "cleanup", "", "/city", fakeRunner, store, nil, nil, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("doOrderRun = %d, want 0; stderr: %s", code, stderr.String())
 	}
@@ -354,7 +354,7 @@ func TestOrderRunNoPool(t *testing.T) {
 
 func TestOrderRunNotFound(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := doOrderRun(nil, "nonexistent", "", "/city", nil, nil, nil, &stdout, &stderr)
+	code := doOrderRun(nil, "nonexistent", "", "/city", nil, nil, nil, nil, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("doOrderRun = %d, want 1", code)
 	}
@@ -588,7 +588,7 @@ func TestOrderRunRigQualifiesPool(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := doOrderRun(aa, "db-health", "demo-repo", "/city", fakeRunner, store, nil, &stdout, &stderr)
+	code := doOrderRun(aa, "db-health", "demo-repo", "/city", fakeRunner, store, nil, nil, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("doOrderRun = %d, want 0; stderr: %s", code, stderr.String())
 	}

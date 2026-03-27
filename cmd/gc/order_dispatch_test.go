@@ -1035,6 +1035,123 @@ func TestOrderDispatchFiresAfterWorkClosed(t *testing.T) {
 	}
 }
 
+// --- rig-scoped store and BEADS_DIR tests ---
+
+// TestOrderExecEnvRigScopedBeadsDir verifies that orderExecEnv sets BEADS_DIR
+// when a non-empty rigBeadsDir is provided, so exec order scripts write beads
+// into the rig store rather than the city store.
+func TestOrderExecEnvRigScopedBeadsDir(t *testing.T) {
+	a := orders.Order{Name: "rig-poll", Gate: "cooldown"}
+	env := orderExecEnv("/city-root", "/rig-root/.beads", a)
+
+	foundBeadsDir := false
+	for _, e := range env {
+		if e == "BEADS_DIR=/rig-root/.beads" {
+			foundBeadsDir = true
+		}
+	}
+	if !foundBeadsDir {
+		t.Errorf("BEADS_DIR not set, got env: %v", env)
+	}
+}
+
+// TestOrderExecEnvNoCityBeadsDir verifies that orderExecEnv does not set
+// BEADS_DIR for city-scoped orders (empty rigBeadsDir).
+func TestOrderExecEnvNoCityBeadsDir(t *testing.T) {
+	a := orders.Order{Name: "city-poll", Gate: "cooldown"}
+	env := orderExecEnv("/city-root", "", a)
+
+	for _, e := range env {
+		if strings.HasPrefix(e, "BEADS_DIR=") {
+			t.Errorf("BEADS_DIR should not be set for city orders, got: %s", e)
+		}
+	}
+}
+
+// TestOrderDispatchExecRigBeadsDir verifies that a dispatcher with cityPath and
+// rigs populated sets BEADS_DIR to the rig's .beads directory when dispatching
+// a rig-scoped exec order.
+func TestOrderDispatchExecRigBeadsDir(t *testing.T) {
+	rigDir := t.TempDir()
+	var gotEnv []string
+
+	fakeExec := func(_ context.Context, _, _ string, env []string) ([]byte, error) {
+		gotEnv = env
+		return nil, nil
+	}
+
+	aa := []orders.Order{{
+		Name:     "rig-poll",
+		Gate:     "cooldown",
+		Interval: "1m",
+		Exec:     "scripts/poll.sh",
+		Rig:      "mystem",
+	}}
+
+	ad := &memoryOrderDispatcher{
+		aa:       aa,
+		store:    beads.NewMemStore(),
+		runner:   noopRunner,
+		execRun:  fakeExec,
+		rec:      events.Discard,
+		stderr:   &bytes.Buffer{},
+		cityPath: "/city-root",
+		rigs:     []config.Rig{{Name: "mystem", Path: rigDir}},
+	}
+
+	ad.dispatch(context.Background(), "/city-root", time.Now())
+	time.Sleep(100 * time.Millisecond)
+
+	wantBeadsDir := "BEADS_DIR=" + rigDir + "/.beads"
+	foundBeadsDir := false
+	for _, e := range gotEnv {
+		if e == wantBeadsDir {
+			foundBeadsDir = true
+		}
+	}
+	if !foundBeadsDir {
+		t.Errorf("BEADS_DIR not set to rig store %q, got env: %v", wantBeadsDir, gotEnv)
+	}
+}
+
+// TestOrderDispatchExecCityNoBeadsDir verifies that city-scoped exec orders
+// (empty Rig field) do not receive a BEADS_DIR in the subprocess environment.
+func TestOrderDispatchExecCityNoBeadsDir(t *testing.T) {
+	var gotEnv []string
+
+	fakeExec := func(_ context.Context, _, _ string, env []string) ([]byte, error) {
+		gotEnv = env
+		return nil, nil
+	}
+
+	aa := []orders.Order{{
+		Name:     "city-poll",
+		Gate:     "cooldown",
+		Interval: "1m",
+		Exec:     "scripts/poll.sh",
+		// Rig is empty — city-scoped order.
+	}}
+
+	ad := &memoryOrderDispatcher{
+		aa:       aa,
+		store:    beads.NewMemStore(),
+		runner:   noopRunner,
+		execRun:  fakeExec,
+		rec:      events.Discard,
+		stderr:   &bytes.Buffer{},
+		cityPath: "/city-root",
+	}
+
+	ad.dispatch(context.Background(), "/city-root", time.Now())
+	time.Sleep(100 * time.Millisecond)
+
+	for _, e := range gotEnv {
+		if strings.HasPrefix(e, "BEADS_DIR=") {
+			t.Errorf("BEADS_DIR should not be set for city-scoped exec orders, got: %s", e)
+		}
+	}
+}
+
 // Unused but keep for future event assertion tests.
 var (
 	_ = (*memRecorder).hasSubject

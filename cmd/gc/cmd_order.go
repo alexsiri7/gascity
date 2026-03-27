@@ -397,14 +397,19 @@ func doOrderShow(aa []orders.Order, name, rig string, stdout, stderr io.Writer) 
 // --- gc order run ---
 
 func cmdOrderRun(name, rig string, stdout, stderr io.Writer) int {
-	aa, code := loadOrders(stderr, "gc order run")
-	if code != 0 {
-		return code
-	}
 	cityPath, err := resolveCity()
 	if err != nil {
 		fmt.Fprintf(stderr, "gc order run: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
+	}
+	cfg, err := loadCityConfig(cityPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "gc order run: %v\n", err) //nolint:errcheck // best-effort stderr
+		return 1
+	}
+	aa, code := loadAllOrders(cityPath, cfg, stderr, "gc order run")
+	if code != 0 {
+		return code
 	}
 	store := bdStoreForCity(cityPath, cityPath)
 
@@ -413,13 +418,14 @@ func cmdOrderRun(name, rig string, stdout, stderr io.Writer) int {
 		return epCode
 	}
 	defer ep.Close() //nolint:errcheck // best-effort
-	return doOrderRun(aa, name, rig, cityPath, shellSlingRunner, store, ep, stdout, stderr)
+	return doOrderRun(aa, name, rig, cityPath, shellSlingRunner, store, ep, cfg.Rigs, stdout, stderr)
 }
 
 // doOrderRun executes an order manually: instantiates a wisp from the
 // order's formula (or runs exec script directly) and routes it to the
-// target pool.
-func doOrderRun(aa []orders.Order, name, rig, cityPath string, runner SlingRunner, store beads.Store, ep events.Provider, stdout, stderr io.Writer) int {
+// target pool. rigs is used to resolve rig paths for rig-scoped orders;
+// nil is safe and skips rig-scoped store selection.
+func doOrderRun(aa []orders.Order, name, rig, cityPath string, runner SlingRunner, store beads.Store, ep events.Provider, rigs []config.Rig, stdout, stderr io.Writer) int {
 	a, ok := findOrder(aa, name, rig)
 	if !ok {
 		fmt.Fprintf(stderr, "gc order run: order %q not found\n", name) //nolint:errcheck // best-effort stderr
@@ -428,7 +434,13 @@ func doOrderRun(aa []orders.Order, name, rig, cityPath string, runner SlingRunne
 
 	// Exec orders: run the script directly.
 	if a.IsExec() {
-		return doOrderRunExec(a, cityPath, stdout, stderr)
+		rigBeadsDir := ""
+		if a.Rig != "" {
+			if rigPath := rigRootForName(a.Rig, rigs); rigPath != "" {
+				rigBeadsDir = filepath.Join(rigPath, ".beads")
+			}
+		}
+		return doOrderRunExec(a, cityPath, rigBeadsDir, stdout, stderr)
 	}
 
 	// Capture event head before wisp creation (race-free cursor).
@@ -473,13 +485,14 @@ func doOrderRun(aa []orders.Order, name, rig, cityPath string, runner SlingRunne
 	return 0
 }
 
-// doOrderRunExec runs an exec order directly via shell.
-func doOrderRunExec(a orders.Order, cityPath string, stdout, stderr io.Writer) int {
+// doOrderRunExec runs an exec order directly via shell. rigBeadsDir, when
+// non-empty, sets BEADS_DIR so the script writes beads into the rig store.
+func doOrderRunExec(a orders.Order, cityPath, rigBeadsDir string, stdout, stderr io.Writer) int {
 	timeout := a.TimeoutOrDefault()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	env := orderExecEnv(cityPath, a)
+	env := orderExecEnv(cityPath, rigBeadsDir, a)
 	if a.Source != "" {
 		env = append(env, "ORDER_DIR="+filepath.Dir(a.Source))
 	}

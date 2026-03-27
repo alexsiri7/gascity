@@ -34,6 +34,15 @@ func bdStoreForDir(dir string) *beads.BdStore {
 	return bdStoreForCity(dir, cityForStoreDir(dir))
 }
 
+// rigRunnerForCity creates a CommandRunner for a rig-scoped store. beadsDir is
+// the rig's .beads/ directory; cityPath provides the Dolt connection parameters.
+// This creates beads in the rig's database rather than the city database.
+func rigRunnerForCity(beadsDir, cityPath string) beads.CommandRunner {
+	env := bdRuntimeEnv(cityPath)
+	env["BEADS_DIR"] = beadsDir
+	return beads.ExecCommandRunnerWithEnv(env)
+}
+
 func bdRuntimeEnv(cityPath string) map[string]string {
 	env := citylayout.CityRuntimeEnvMap(cityPath)
 	if rawBeadsProvider(cityPath) != "bd" {

@@ -50,6 +50,8 @@ type memoryOrderDispatcher struct {
 	rec        events.Recorder
 	stderr     io.Writer
 	maxTimeout time.Duration
+	cityPath   string       // for creating rig-scoped runners; empty in tests
+	rigs       []config.Rig // for resolving rig paths; empty in tests
 }
 
 // buildOrderDispatcher scans formula layers for orders and returns a
@@ -97,6 +99,8 @@ func buildOrderDispatcher(cityPath string, cfg *config.City, runner beads.Comman
 		rec:        rec,
 		stderr:     stderr,
 		maxTimeout: cfg.Orders.MaxTimeoutDuration(),
+		cityPath:   cityPath,
+		rigs:       cfg.Rigs,
 	}
 }
 
@@ -157,12 +161,39 @@ func (m *memoryOrderDispatcher) dispatchOne(ctx context.Context, a orders.Order,
 	}
 }
 
+// rigBeadsDirFor returns the .beads directory path for the given rig name, or
+// empty string if the rig is not found or the dispatcher has no rig config.
+func (m *memoryOrderDispatcher) rigBeadsDirFor(rigName string) string {
+	if rigName == "" || m.cityPath == "" {
+		return ""
+	}
+	rigPath := rigRootForName(rigName, m.rigs)
+	if rigPath == "" {
+		return ""
+	}
+	return filepath.Join(rigPath, ".beads")
+}
+
+// rigStoreAndRunner returns a rig-scoped store and runner for the given rig
+// name, falling back to the city store and runner when no rig config is set
+// (e.g., in tests that construct the dispatcher directly).
+func (m *memoryOrderDispatcher) rigStoreAndRunner(rigName string) (beads.Store, beads.CommandRunner, string) {
+	rigBeadsDir := m.rigBeadsDirFor(rigName)
+	if rigBeadsDir == "" {
+		return m.store, m.runner, m.cityPath
+	}
+	rigPath := filepath.Dir(rigBeadsDir)
+	rigRunner := rigRunnerForCity(rigBeadsDir, m.cityPath)
+	return beads.NewBdStore(rigPath, rigRunner), rigRunner, rigPath
+}
+
 // dispatchExec runs an exec order's shell command.
 func (m *memoryOrderDispatcher) dispatchExec(ctx context.Context, a orders.Order, cityPath, trackingID string) {
 	scoped := a.ScopedName()
 
 	// Build env with ORDER_DIR and PACK_DIR.
-	env := orderExecEnv(cityPath, a)
+	rigBeadsDir := m.rigBeadsDirFor(a.Rig)
+	env := orderExecEnv(cityPath, rigBeadsDir, a)
 	if a.Source != "" {
 		env = append(env, "ORDER_DIR="+filepath.Dir(a.Source))
 	}
@@ -195,8 +226,14 @@ func (m *memoryOrderDispatcher) dispatchExec(ctx context.Context, a orders.Order
 	m.store.Update(trackingID, beads.UpdateOpts{Labels: labels}) //nolint:errcheck // best-effort
 }
 
-func orderExecEnv(cityPath string, a orders.Order) []string {
+// orderExecEnv builds the environment for an exec order subprocess. rigBeadsDir,
+// when non-empty, sets BEADS_DIR so rig-scoped scripts write beads into the
+// correct rig store rather than the city store.
+func orderExecEnv(cityPath, rigBeadsDir string, a orders.Order) []string {
 	env := citylayout.CityRuntimeEnv(cityPath)
+	if rigBeadsDir != "" {
+		env = append(env, "BEADS_DIR="+rigBeadsDir)
+	}
 	if a.FormulaLayer == "" {
 		return env
 	}
@@ -238,7 +275,11 @@ func (m *memoryOrderDispatcher) dispatchWisp(ctx context.Context, a orders.Order
 	if a.FormulaLayer != "" {
 		searchPaths = []string{a.FormulaLayer}
 	}
-	cookResult, err := molecule.Cook(ctx, m.store, a.Formula, searchPaths, molecule.Options{})
+
+	// For rig-scoped formula orders, create wisps in the rig store so rig
+	// agents (whose BEADS_DIR points to the rig store) can manage them.
+	wispStore, wispRunner, wispDir := m.rigStoreAndRunner(a.Rig)
+	cookResult, err := molecule.Cook(ctx, wispStore, a.Formula, searchPaths, molecule.Options{})
 	if err != nil {
 		m.rec.Record(events.Event{
 			Type:    events.OrderFailed,
@@ -260,7 +301,7 @@ func (m *memoryOrderDispatcher) dispatchWisp(ctx context.Context, a orders.Order
 		pool := qualifyPool(a.Pool, a.Rig)
 		args = append(args, fmt.Sprintf("--add-label=pool:%s", pool))
 	}
-	if _, err := m.runner(cityPath, "bd", args...); err != nil {
+	if _, err := wispRunner(wispDir, "bd", args...); err != nil {
 		// Label failure is critical for duplicate-dispatch prevention.
 		// Log and emit an event so operators can investigate.
 		fmt.Fprintf(m.stderr, "gc: order %s: failed to label wisp %s: %v\n", scoped, rootID, err) //nolint:errcheck
