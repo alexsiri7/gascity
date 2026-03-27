@@ -27,7 +27,7 @@ Push conflicts are handled by fetch + rebase + retry (up to 3 times).
 | Unsure what to do | Mail Witness, don't guess |"""
 formula = "mol-polecat-commit"
 extends = ["mol-polecat-base"]
-version = 1
+version = 2
 
 [[steps]]
 id = "workspace-setup"
@@ -131,13 +131,20 @@ git worktree remove "$WORKTREE_PATH" --force
 bd update {{issue}} --unset-metadata work_dir
 ```
 
-**4. Close the bead:**
+**4. Strip pool labels (prevents stale pool hits after close):**
+```bash
+bd label list {{issue}} --json | \
+  jq -r '.[] | select(startswith("pool:"))' | \
+  while IFS= read -r label; do bd label remove {{issue}} "$label"; done
+```
+
+**5. Close the bead:**
 ```bash
 bd update {{issue}} --notes "Committed directly to {{base_branch}}: <brief summary>"
 bd close {{issue}}
 ```
 
-**5. Signal reconciler and exit.**
+**6. Signal reconciler and exit.**
 ```bash
 gc runtime drain-ack
 exit
@@ -148,4 +155,4 @@ reconciler only restarts you if the pool check command finds more work.
 You are GONE. Done means gone. There is no idle state.
 
 **Exit criteria:** Changes pushed to {{base_branch}}, worktree cleaned up,
-bead closed, session exited."""
+pool labels stripped, bead closed, session exited."""
