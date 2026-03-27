@@ -151,6 +151,133 @@ func TestPreWakeCommit_BumpsContinuationEpochForFreshWake(t *testing.T) {
 	}
 }
 
+func TestPreWakeCommit_RotatesSessionKeyForFreshMode(t *testing.T) {
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	store := beads.NewMemStore()
+
+	oldKey := "old-session-key"
+	b, err := store.Create(beads.Bead{
+		Title: "fresh-session",
+		Metadata: map[string]string{
+			"session_name":        "fresh-worker",
+			"template":            "worker",
+			"generation":          "2",
+			"continuation_epoch":  "3",
+			"wake_mode":           "fresh",
+			"last_woke_at":        now.Add(-time.Minute).UTC().Format(time.RFC3339),
+			"session_key":         oldKey,
+			"started_config_hash": "abc123",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := preWakeCommit(&b, store, clk); err != nil {
+		t.Fatalf("preWakeCommit: %v", err)
+	}
+	got, _ := store.Get(b.ID)
+	// Epoch bumped.
+	if got.Metadata["continuation_epoch"] != "4" {
+		t.Errorf("continuation_epoch = %q, want 4", got.Metadata["continuation_epoch"])
+	}
+	// session_key rotated to a new non-empty value.
+	newKey := got.Metadata["session_key"]
+	if newKey == "" {
+		t.Error("session_key should be set to a new key, not empty")
+	}
+	if newKey == oldKey {
+		t.Error("session_key should be rotated to a fresh value, not the old key")
+	}
+	// started_config_hash cleared so next wake uses --session-id (firstStart=true).
+	if got.Metadata["started_config_hash"] != "" {
+		t.Errorf("started_config_hash = %q, want empty (to force firstStart semantics)", got.Metadata["started_config_hash"])
+	}
+}
+
+func TestPreWakeCommit_NoSessionKeyRotationForPendingReset(t *testing.T) {
+	// When continuation_reset_pending is set (drain-ack/request-restart path),
+	// session_key was already cleared before preWakeCommit is called.
+	// preWakeCommit should NOT generate a new key — syncSessionBeads backfills
+	// it after continuation_reset_pending is cleared.
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	store := beads.NewMemStore()
+
+	b, err := store.Create(beads.Bead{
+		Title: "reset-session",
+		Metadata: map[string]string{
+			"session_name":               "reset-worker",
+			"template":                   "worker",
+			"generation":                 "2",
+			"continuation_epoch":         "3",
+			"wake_mode":                  "fresh",
+			"last_woke_at":               now.Add(-time.Minute).UTC().Format(time.RFC3339),
+			"session_key":                "", // already cleared by drain-ack
+			"continuation_reset_pending": "true",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := preWakeCommit(&b, store, clk); err != nil {
+		t.Fatalf("preWakeCommit: %v", err)
+	}
+	got, _ := store.Get(b.ID)
+	// Epoch bumped (via continuation_reset_pending).
+	if got.Metadata["continuation_epoch"] != "4" {
+		t.Errorf("continuation_epoch = %q, want 4", got.Metadata["continuation_epoch"])
+	}
+	// session_key stays empty — syncSessionBeads will backfill after this.
+	if got.Metadata["session_key"] != "" {
+		t.Errorf("session_key = %q, want empty (backfill responsibility of syncSessionBeads)", got.Metadata["session_key"])
+	}
+	// continuation_reset_pending cleared.
+	if got.Metadata["continuation_reset_pending"] != "" {
+		t.Errorf("continuation_reset_pending = %q, want empty", got.Metadata["continuation_reset_pending"])
+	}
+}
+
+func TestPreWakeCommit_NoSessionKeyRotationForResumeMode(t *testing.T) {
+	// Agents without wake_mode=fresh should NOT have their session_key rotated,
+	// even if they have a session_key set. They resume normally.
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	clk := &clock.Fake{Time: now}
+	store := beads.NewMemStore()
+
+	originalKey := "resume-session-key"
+	b, err := store.Create(beads.Bead{
+		Title: "resume-session",
+		Metadata: map[string]string{
+			"session_name":        "resume-worker",
+			"template":            "worker",
+			"generation":          "2",
+			"continuation_epoch":  "3",
+			"last_woke_at":        now.Add(-time.Minute).UTC().Format(time.RFC3339),
+			"session_key":         originalKey,
+			"started_config_hash": "abc123",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := preWakeCommit(&b, store, clk); err != nil {
+		t.Fatalf("preWakeCommit: %v", err)
+	}
+	got, _ := store.Get(b.ID)
+	// Epoch NOT bumped (no wake_mode=fresh, no continuation_reset_pending).
+	if got.Metadata["continuation_epoch"] != "3" {
+		t.Errorf("continuation_epoch = %q, want 3 (no bump for resume mode)", got.Metadata["continuation_epoch"])
+	}
+	// session_key unchanged.
+	if got.Metadata["session_key"] != originalKey {
+		t.Errorf("session_key = %q, want %q (no rotation for resume mode)", got.Metadata["session_key"], originalKey)
+	}
+}
+
 func TestPreWakeCommit_BumpsContinuationEpochForPendingReset(t *testing.T) {
 	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
 	clk := &clock.Fake{Time: now}

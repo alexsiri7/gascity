@@ -42,8 +42,25 @@ func preWakeCommit(
 	if continuationEpoch <= 0 {
 		continuationEpoch = sessions.DefaultContinuationEpoch
 	}
+
+	// For wake_mode=fresh agents, rotate the session_key on every non-first
+	// wake so the provider starts a new conversation (--session-id) rather than
+	// resuming the old one (--resume). This must happen in the same atomic
+	// window as the epoch bump.
+	//
+	// Only applies when the bump reason is wake_mode=fresh (continuation_reset_pending
+	// is empty): drain-ack and request-restart already cleared session_key before
+	// calling preWakeCommit, so no rotation is needed for those paths.
+	var rotatedSessionKey string
 	if shouldBumpContinuationEpoch(session.Metadata) {
 		continuationEpoch++
+		if session.Metadata["wake_mode"] == "fresh" &&
+			session.Metadata["continuation_reset_pending"] == "" &&
+			session.Metadata["session_key"] != "" {
+			if key, keyErr := sessions.GenerateSessionKey(); keyErr == nil {
+				rotatedSessionKey = key
+			}
+		}
 	}
 
 	sleepReason := ""
@@ -64,6 +81,10 @@ func preWakeCommit(
 		"sleep_reason":               sleepReason,
 		"sleep_intent":               "",
 		"generation":                 strconv.Itoa(newGen),
+	}
+	if rotatedSessionKey != "" {
+		batch["session_key"] = rotatedSessionKey
+		batch["started_config_hash"] = ""
 	}
 	if writeErr := store.SetMetadataBatch(session.ID, batch); writeErr != nil {
 		return 0, "", fmt.Errorf("pre-wake metadata commit: %w", writeErr)
