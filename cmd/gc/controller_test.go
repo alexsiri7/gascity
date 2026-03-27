@@ -147,7 +147,7 @@ func TestControllerShutdown(t *testing.T) {
 	done := make(chan struct{})
 	var exitCode int
 	go func() {
-		exitCode = runController(dir, tomlPath, cfg, "", buildFn, sp, nil, nil, nil, nil, events.Discard, nil, &stdout, &stderr)
+		exitCode = runController(dir, tomlPath, cfg, "", buildFn, nil, sp, nil, nil, nil, nil, events.Discard, nil, &stdout, &stderr)
 		close(done)
 	}()
 
@@ -280,7 +280,15 @@ func TestControllerReloadsConfig(t *testing.T) {
 
 	cancel()
 
+	// Wait for goroutine to finish so we can safely read lastAgentNames.
+	select {
+	case <-loopDone:
+	case <-time.After(2 * time.Second):
+		t.Log("WARNING: goroutine did not finish in time")
+	}
+
 	names, _ := lastAgentNames.Load().([]string)
+	t.Logf("DEBUG: stdout=%q reconcileCount=%d", stdout.String(), reconcileCount.Load())
 	if len(names) != 2 || names[0] != "mayor" || names[1] != "worker" {
 		t.Errorf("expected [mayor worker], got %v", names)
 	}
@@ -475,7 +483,7 @@ func TestControllerPokeTriggersImmediate(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		runController(dir, tomlPath, cfg, "", buildFn, sp, nil, nil, nil, nil, events.Discard, nil, &stdout, &stderr)
+		runController(dir, tomlPath, cfg, "", buildFn, nil, sp, nil, nil, nil, nil, events.Discard, nil, &stdout, &stderr)
 		close(done)
 	}()
 

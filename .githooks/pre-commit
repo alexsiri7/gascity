@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+staged_go_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+[ -z "$staged_go_files" ] && exit 0
+
+golangci-lint fmt ./... 2>/dev/null
+echo "$staged_go_files" | xargs git add
+
+golangci-lint run --new-from-rev=HEAD --fix || exit 1
+echo "$staged_go_files" | xargs git add

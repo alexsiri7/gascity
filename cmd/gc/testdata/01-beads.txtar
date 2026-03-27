@@ -64,6 +64,14 @@ cd $WORK/bright-lights
 # Sling a bead to an agent (coverage for tutorial's "gc sling claude" usage)
 # exec gc sling claude
 
+# Start the city (already initialized)
+exec gc start
+stdout 'City started.'
+
+# Stop the city
+exec gc stop
+stdout 'City stopped.'
+
 -- bright-lights/hello-world/.git/config --
 [core]
 	bare = false

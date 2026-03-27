@@ -46,30 +46,33 @@ func preWakeCommit(
 		continuationEpoch++
 	}
 
-	// Write in a defined order so partial failures on sequential stores
-	// leave detectable (not impossible) state. Token first: a bead with
-	// a new token but old generation is detectable as "incomplete wake."
-	// Generation last: only bumped after all other fields are in place.
-	orderedWrites := []struct{ k, v string }{
-		{"instance_token", token},
-		{"continuation_epoch", strconv.Itoa(continuationEpoch)},
-		{"continuation_reset_pending", ""},
-		{"last_woke_at", clk.Now().UTC().Format(time.RFC3339)},
-		{"sleep_reason", ""},
-		{"sleep_intent", ""},
-		{"generation", strconv.Itoa(newGen)}, // must be last
+	sleepReason := ""
+	if session.Metadata["sleep_reason"] == "idle-timeout" {
+		// Preserve the idle-timeout wake override until the replacement
+		// session has actually started. Failed starts must retry next tick.
+		sleepReason = "idle-timeout"
 	}
-	for _, kv := range orderedWrites {
-		if writeErr := store.SetMetadata(session.ID, kv.k, kv.v); writeErr != nil {
-			return 0, "", fmt.Errorf("pre-wake metadata commit (%s): %w", kv.k, writeErr)
-		}
+
+	// Use one batched metadata update to avoid paying multiple bd update
+	// round-trips before every wake.
+	batch := map[string]string{
+		"instance_token":             token,
+		"continuation_epoch":         strconv.Itoa(continuationEpoch),
+		"continuation_reset_pending": "",
+		"detached_at":                "",
+		"last_woke_at":               clk.Now().UTC().Format(time.RFC3339),
+		"sleep_reason":               sleepReason,
+		"sleep_intent":               "",
+		"generation":                 strconv.Itoa(newGen),
 	}
-	// Update in-memory snapshot.
+	if writeErr := store.SetMetadataBatch(session.ID, batch); writeErr != nil {
+		return 0, "", fmt.Errorf("pre-wake metadata commit: %w", writeErr)
+	}
 	if session.Metadata == nil {
-		session.Metadata = make(map[string]string)
+		session.Metadata = make(map[string]string, len(batch))
 	}
-	for _, kv := range orderedWrites {
-		session.Metadata[kv.k] = kv.v
+	for k, v := range batch {
+		session.Metadata[k] = v
 	}
 
 	return newGen, token, nil
@@ -142,6 +145,7 @@ func cancelSessionDrain(session beads.Bead, dt *drainTracker) bool {
 	}
 	gen, _ := strconv.Atoi(session.Metadata["generation"])
 	if gen == ds.generation {
+		dt.clearIdleProbe(session.ID)
 		dt.remove(session.ID)
 		name := session.Metadata["session_name"]
 		telemetry.RecordDrainTransition(context.Background(), name, ds.reason, "cancel")
@@ -151,6 +155,8 @@ func cancelSessionDrain(session beads.Bead, dt *drainTracker) bool {
 }
 
 // advanceSessionDrains checks all in-progress drains. Called once per tick.
+//
+//nolint:unparam // workSet is nil today but reserved for future drain filtering
 func advanceSessionDrains(
 	dt *drainTracker,
 	sp runtime.Provider,
@@ -162,9 +168,35 @@ func advanceSessionDrains(
 	readyWaitSet map[string]bool,
 	clk clock.Clock,
 ) {
+	var sessions []beads.Bead
+	for id := range dt.all() {
+		if session := sessionLookup(id); session != nil {
+			sessions = append(sessions, *session)
+		}
+	}
+	advanceSessionDrainsWithSessions(dt, sp, store, sessionLookup, sessions, nil, cfg, poolDesired, workSet, readyWaitSet, clk)
+}
+
+func advanceSessionDrainsWithSessions(
+	dt *drainTracker,
+	sp runtime.Provider,
+	store beads.Store,
+	sessionLookup func(id string) *beads.Bead,
+	sessions []beads.Bead,
+	wakeEvals map[string]wakeEvaluation,
+	cfg *config.City,
+	poolDesired map[string]int,
+	workSet map[string]bool,
+	readyWaitSet map[string]bool,
+	clk clock.Clock,
+) {
+	if wakeEvals == nil {
+		wakeEvals = computeWakeEvaluations(sessions, cfg, sp, poolDesired, workSet, readyWaitSet, clk)
+	}
 	for id, ds := range dt.all() {
 		session := sessionLookup(id)
 		if session == nil {
+			dt.clearIdleProbe(id)
 			dt.remove(id)
 			continue
 		}
@@ -172,20 +204,9 @@ func advanceSessionDrains(
 		// Stale check: if session was re-woken (generation changed), cancel drain.
 		gen, _ := strconv.Atoi(session.Metadata["generation"])
 		if gen != ds.generation {
+			dt.clearIdleProbe(id)
 			dt.remove(id)
 			continue
-		}
-
-		// Cancelation check: if wake reasons reappeared, cancel drain.
-		// Config-drift, orphaned, and suspended drains are NOT cancelable —
-		// they represent explicit lifecycle decisions that should not be
-		// reversed by the wake contract (the session is leaving the desired set).
-		if ds.reason != "config-drift" && ds.reason != "orphaned" && ds.reason != "suspended" {
-			reasons := wakeReasons(*session, cfg, sp, poolDesired, workSet, readyWaitSet, clk)
-			if len(reasons) > 0 {
-				dt.remove(id)
-				continue
-			}
 		}
 
 		name := session.Metadata["session_name"]
@@ -194,9 +215,22 @@ func advanceSessionDrains(
 		if !sp.IsRunning(name) {
 			// Process exited — drain complete.
 			completeDrain(session, store, ds, clk)
+			dt.clearIdleProbe(id)
 			dt.remove(id)
 			telemetry.RecordDrainTransition(context.Background(), name, ds.reason, "complete")
 			continue
+		}
+
+		// Cancelation check: if wake reasons reappeared, cancel drain.
+		// Config-drift, orphaned, and suspended drains are NOT cancelable —
+		// they represent explicit lifecycle decisions that should not be
+		// reversed by the wake contract (the session is leaving the desired set).
+		if ds.reason != "config-drift" && ds.reason != "orphaned" && ds.reason != "suspended" {
+			if eval, ok := wakeEvals[session.ID]; ok && len(eval.Reasons) > 0 {
+				dt.clearIdleProbe(id)
+				dt.remove(id)
+				continue
+			}
 		}
 
 		if clk.Now().After(ds.deadline) {
@@ -205,6 +239,7 @@ func advanceSessionDrains(
 				if errors.Is(err, errTokenMismatch) {
 					// Session was re-woken by a different incarnation.
 					// This drain is stale — cancel it.
+					dt.clearIdleProbe(id)
 					dt.remove(id)
 				}
 				// Other errors (transient stop failure): keep drain
@@ -215,6 +250,7 @@ func advanceSessionDrains(
 			// before marking metadata as asleep.
 			if !sp.IsRunning(name) {
 				completeDrain(session, store, ds, clk)
+				dt.clearIdleProbe(id)
 				dt.remove(id)
 				telemetry.RecordDrainTransition(context.Background(), name, ds.reason, "timeout")
 			}
@@ -229,6 +265,7 @@ func completeDrain(session *beads.Bead, store beads.Store, ds *drainState, clk c
 	batch := map[string]string{
 		"slept_at":     clk.Now().UTC().Format(time.RFC3339),
 		"sleep_reason": ds.reason,
+		"sleep_intent": "",
 		"state":        "asleep",
 		"last_woke_at": "", // Clear to prevent false crash detection.
 	}

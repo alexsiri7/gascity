@@ -303,7 +303,7 @@ func TestResolveSessionLogWorkDirByAlias(t *testing.T) {
 		},
 	})
 
-	got, _, ok := resolveSessionLogContext(store, "worker")
+	got, _, ok := resolveSessionLogContext("", nil, store, "worker")
 	if !ok {
 		t.Fatal("resolveSessionLogContext() = not found, want found")
 	}
@@ -324,7 +324,7 @@ func TestResolveSessionLogWorkDirBySessionName(t *testing.T) {
 		},
 	})
 
-	got, _, ok := resolveSessionLogContext(store, "s-gc-77")
+	got, _, ok := resolveSessionLogContext("", nil, store, "s-gc-77")
 	if !ok {
 		t.Fatal("resolveSessionLogContext() = not found, want found")
 	}
@@ -346,7 +346,7 @@ func TestResolveSessionLogWorkDirByClosedHistoricalAlias(t *testing.T) {
 	})
 	_ = store.Close(b.ID)
 
-	got, _, ok := resolveSessionLogContext(store, "mayor")
+	got, _, ok := resolveSessionLogContext("", nil, store, "mayor")
 	if !ok {
 		t.Fatal("resolveSessionLogContext() = not found, want found")
 	}
@@ -364,14 +364,78 @@ func TestResolveConfiguredSessionLogContext_ByExactSingletonAlias(t *testing.T) 
 		Agents: []config.Agent{
 			{Name: "witness", Dir: "demo"},
 		},
+		NamedSessions: []config.NamedSession{{
+			Template: "witness",
+			Dir:      "demo",
+		}},
 	}
 
-	got, sessionKey, ok := resolveConfiguredSessionLogContext(cityPath, cfg, "demo/witness")
+	got, ok := resolveConfiguredSessionLogContext(cityPath, cfg, "demo/witness")
 	if !ok {
 		t.Fatal("resolveConfiguredSessionLogContext() = not found, want found")
 	}
-	if sessionKey != "" {
-		t.Fatalf("sessionKey = %q, want empty", sessionKey)
+	if got != rigPath {
+		t.Fatalf("resolveConfiguredSessionLogContext() workDir = %q, want %q", got, rigPath)
+	}
+}
+
+func TestResolveConfiguredSessionLogContext_ByCityUniqueBareNamedSession(t *testing.T) {
+	cityPath := t.TempDir()
+	rigPath := filepath.Join(cityPath, "repos", "demo")
+	cfg := &config.City{
+		Workspace: config.Workspace{Name: "gastown"},
+		Rigs:      []config.Rig{{Name: "demo", Path: rigPath}},
+		Agents: []config.Agent{
+			{Name: "witness", Dir: "demo"},
+		},
+		NamedSessions: []config.NamedSession{{
+			Template: "witness",
+			Dir:      "demo",
+		}},
+	}
+
+	got, ok := resolveConfiguredSessionLogContext(cityPath, cfg, "witness")
+	if !ok {
+		t.Fatal("resolveConfiguredSessionLogContext() = not found, want found")
+	}
+	if got != rigPath {
+		t.Fatalf("resolveConfiguredSessionLogContext() workDir = %q, want %q", got, rigPath)
+	}
+}
+
+func TestResolveSessionLogContext_ReservedNamedTargetIgnoresClosedHistoricalBead(t *testing.T) {
+	cityPath := t.TempDir()
+	rigPath := filepath.Join(cityPath, "repos", "demo")
+	store := beads.NewMemStore()
+	cfg := &config.City{
+		Workspace: config.Workspace{Name: "gastown"},
+		Rigs:      []config.Rig{{Name: "demo", Path: rigPath}},
+		Agents: []config.Agent{
+			{Name: "witness", Dir: "demo"},
+		},
+		NamedSessions: []config.NamedSession{{
+			Template: "witness",
+			Dir:      "demo",
+		}},
+	}
+	b, _ := store.Create(beads.Bead{
+		Type:   session.BeadType,
+		Labels: []string{session.LabelSession},
+		Metadata: map[string]string{
+			"alias":         "sky",
+			"alias_history": "demo/witness",
+			"work_dir":      "/tmp/stale",
+		},
+	})
+	_ = store.Close(b.ID)
+
+	got, _, ok := resolveSessionLogContext(cityPath, cfg, store, "witness")
+	if ok {
+		t.Fatalf("resolveSessionLogContext() = %q, want not found for reserved named target", got)
+	}
+	got, ok = resolveConfiguredSessionLogContext(cityPath, cfg, "witness")
+	if !ok {
+		t.Fatal("resolveConfiguredSessionLogContext() = not found, want configured fallback")
 	}
 	if got != rigPath {
 		t.Fatalf("resolveConfiguredSessionLogContext() workDir = %q, want %q", got, rigPath)
@@ -388,10 +452,10 @@ func TestResolveConfiguredSessionLogContext_RejectsNonExactOrPoolTargets(t *test
 		},
 	}
 
-	if _, _, ok := resolveConfiguredSessionLogContext(cityPath, cfg, "dog"); ok {
+	if _, ok := resolveConfiguredSessionLogContext(cityPath, cfg, "dog"); ok {
 		t.Fatal("resolveConfiguredSessionLogContext(pool) = found, want not found")
 	}
-	if _, _, ok := resolveConfiguredSessionLogContext(cityPath, cfg, "worker"); ok {
+	if _, ok := resolveConfiguredSessionLogContext(cityPath, cfg, "worker"); ok {
 		t.Fatal("resolveConfiguredSessionLogContext(non-exact bare name) = found, want not found")
 	}
 }

@@ -439,6 +439,8 @@ func TestDeepCopyAgentCoversAllFields(t *testing.T) {
 		SlingQuery:             "bd update {}",
 		IdleTimeout:            "15m",
 		StuckTimeout:           "2h",
+		SleepAfterIdle:         "30s",
+		SleepAfterIdleSource:   "agent",
 		InstallAgentHooks:      []string{"claude"},
 		HooksInstalled:         &trueVal,
 		SessionSetup:           []string{"setup-cmd"},

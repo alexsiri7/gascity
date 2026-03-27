@@ -181,12 +181,7 @@ test-k8s:
 
 ## setup: install tools and git hooks
 setup: install-tools
-	@hooks_dir="$$(git config --path core.hooksPath 2>/dev/null || true)"; \
-	if [ -z "$$hooks_dir" ]; then \
-		hooks_dir="$$(git rev-parse --git-path hooks)"; \
-	fi; \
-	mkdir -p "$$hooks_dir"; \
-	ln -sf "$$(pwd)/scripts/pre-commit" "$$hooks_dir/pre-commit"
+	git config core.hooksPath .githooks
 	@echo "Done. Tools installed, pre-commit hook active."
 
 ## docs-dev: run the Mintlify docs locally

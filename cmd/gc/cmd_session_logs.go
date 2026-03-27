@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -61,10 +62,10 @@ func cmdSessionLogs(args []string, follow bool, tail int, stdout, stderr io.Writ
 	workDir, sessionKey, ok := "", "", false
 	store, err := tryOpenCityStore()
 	if err == nil && store != nil {
-		workDir, sessionKey, ok = resolveSessionLogContext(store, identifier)
+		workDir, sessionKey, ok = resolveSessionLogContext(cityPath, cfg, store, identifier)
 	}
 	if !ok {
-		workDir, sessionKey, ok = resolveConfiguredSessionLogContext(cityPath, cfg, identifier)
+		workDir, ok = resolveConfiguredSessionLogContext(cityPath, cfg, identifier)
 	}
 	if !ok {
 		fmt.Fprintf(stderr, "gc session logs: session %q not found\n", identifier) //nolint:errcheck // best-effort stderr
@@ -87,11 +88,11 @@ func cmdSessionLogs(args []string, follow bool, tail int, stdout, stderr io.Writ
 	return doSessionLogs(path, follow, tail, stdout, stderr)
 }
 
-func resolveSessionLogContext(store beads.Store, identifier string) (string, string, bool) {
+func resolveSessionLogContext(cityPath string, cfg *config.City, store beads.Store, identifier string) (string, string, bool) {
 	if store == nil {
 		return "", "", false
 	}
-	sessionID, err := resolveSessionIDAllowClosed(store, identifier)
+	sessionID, err := resolveSessionIDAllowClosedWithConfig(cityPath, cfg, store, identifier)
 	if err != nil {
 		return "", "", false
 	}
@@ -106,13 +107,24 @@ func resolveSessionLogContext(store beads.Store, identifier string) (string, str
 	return workDir, strings.TrimSpace(b.Metadata["session_key"]), true
 }
 
-func resolveConfiguredSessionLogContext(cityPath string, cfg *config.City, identifier string) (string, string, bool) {
+func resolveConfiguredSessionLogContext(cityPath string, cfg *config.City, identifier string) (string, bool) {
 	if cfg == nil {
-		return "", "", false
+		return "", false
 	}
-	identifier = strings.TrimSpace(identifier)
+	identifier = normalizeNamedSessionTarget(identifier)
 	if identifier == "" {
-		return "", "", false
+		return "", false
+	}
+	cityName := cfg.Workspace.Name
+	if cityName == "" {
+		cityName = filepath.Base(cityPath)
+	}
+	if spec, ok, _ := findNamedSessionSpecForTarget(cfg, cityName, nil, identifier); ok && spec.Agent != nil {
+		workDir, err := resolveWorkDir(cityPath, cfg, spec.Agent)
+		if err != nil || strings.TrimSpace(workDir) == "" {
+			return "", false
+		}
+		return workDir, true
 	}
 	for i := range cfg.Agents {
 		agentCfg := cfg.Agents[i]
@@ -121,11 +133,11 @@ func resolveConfiguredSessionLogContext(cityPath string, cfg *config.City, ident
 		}
 		workDir, err := resolveWorkDir(cityPath, cfg, &agentCfg)
 		if err != nil || strings.TrimSpace(workDir) == "" {
-			return "", "", false
+			return "", false
 		}
-		return workDir, "", true
+		return workDir, true
 	}
-	return "", "", false
+	return "", false
 }
 
 // doSessionLogs reads the session file and prints messages. If follow is true,

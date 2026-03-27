@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gastownhall/gascity/internal/beads"
+	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/mail"
 	"github.com/gastownhall/gascity/internal/mail/beadmail"
@@ -49,7 +50,7 @@ func (countOnlyMailProvider) Count(recipient string) (int, int, error) {
 	}
 }
 
-func (s failingListByLabelStore) ListByLabel(label string, limit int) ([]beads.Bead, error) {
+func (s failingListByLabelStore) ListByLabel(_ string, _ int) ([]beads.Bead, error) {
 	return nil, s.err
 }
 
@@ -355,6 +356,9 @@ name = "test-city"
 [[agent]]
 name = "mayor"
 provider = "missing-provider"
+
+[[named_session]]
+template = "mayor"
 `
 	if err := os.WriteFile(filepath.Join(cityPath, "city.toml"), []byte(cityToml), 0o644); err != nil {
 		t.Fatalf("WriteFile(city.toml): %v", err)
@@ -367,6 +371,69 @@ provider = "missing-provider"
 	}
 	if address != "mayor" {
 		t.Fatalf("address = %q, want mayor", address)
+	}
+}
+
+func TestConfiguredMailboxAddressResolvesCityUniqueBareNamedSession(t *testing.T) {
+	cityPath := t.TempDir()
+	cityToml := `[workspace]
+name = "test-city"
+
+[[agent]]
+name = "witness"
+dir = "demo"
+provider = "missing-provider"
+
+[[named_session]]
+template = "witness"
+dir = "demo"
+`
+	if err := os.WriteFile(filepath.Join(cityPath, "city.toml"), []byte(cityToml), 0o644); err != nil {
+		t.Fatalf("WriteFile(city.toml): %v", err)
+	}
+	t.Setenv("GC_CITY", cityPath)
+
+	address, ok := configuredMailboxAddress("witness")
+	if !ok {
+		t.Fatal("configuredMailboxAddress() = not ok, want ok")
+	}
+	if address != "demo/witness" {
+		t.Fatalf("address = %q, want demo/witness", address)
+	}
+}
+
+func TestResolveMailRecipientIdentity_TemplatePrefixCreatesFreshSession(t *testing.T) {
+	t.Setenv("GC_SESSION", "fake")
+
+	store := beads.NewMemStore()
+	cfg := &config.City{
+		Workspace: config.Workspace{Name: "test-city"},
+		Agents: []config.Agent{{
+			Name:         "mayor",
+			StartCommand: "true",
+		}},
+		NamedSessions: []config.NamedSession{{
+			Template: "mayor",
+		}},
+	}
+
+	address, err := resolveMailRecipientIdentity(t.TempDir(), cfg, store, "template:mayor")
+	if err != nil {
+		t.Fatalf("resolveMailRecipientIdentity(template:mayor): %v", err)
+	}
+	if address == "mayor" {
+		t.Fatalf("address = %q, want fresh session mailbox identity", address)
+	}
+
+	all, err := store.ListByLabel(session.LabelSession, 0)
+	if err != nil {
+		t.Fatalf("ListByLabel: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("session bead count = %d, want 1", len(all))
+	}
+	if all[0].Metadata["alias"] != "" {
+		t.Fatalf("fresh template mailbox alias = %q, want empty", all[0].Metadata["alias"])
 	}
 }
 

@@ -1,5 +1,12 @@
 version: "2"
 
+severity:
+  default: error
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 formatters:
   enable:
     - gofumpt
@@ -38,6 +45,16 @@ linters:
         text: "var-naming"
       # api is an established package name for the HTTP API server.
       - path: internal/api/
+        linters:
+          - revive
+        text: "var-naming"
+      # mail is an established package name — renaming would break imports.
+      - path: internal/mail/
+        linters:
+          - revive
+        text: "var-naming"
+      # extmsg is an established package name for external messaging.
+      - path: internal/extmsg/
         linters:
           - revive
         text: "var-naming"
