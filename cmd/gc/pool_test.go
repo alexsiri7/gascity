@@ -423,6 +423,8 @@ func TestDeepCopyAgentCoversAllFields(t *testing.T) {
 		Nudge:                  "nudge text",
 		Session:                "acp",
 		Provider:               "claude",
+		Providers:              []string{"claude", "gemini"},
+		ProviderStrategy:       "random",
 		StartCommand:           "claude --dangerously",
 		Args:                   []string{"--arg1"},
 		PromptMode:             "flag",
@@ -495,6 +497,7 @@ func TestDeepCopyAgentCoversAllFields(t *testing.T) {
 	src.ProcessNames[0] = "MUTATED"
 	src.InjectFragments[0] = "MUTATED"
 	src.InstallAgentHooks[0] = "MUTATED"
+	src.Providers[0] = "MUTATED"
 	src.Pool.Min = 999
 
 	if dst.PreStart[0] == "MUTATED" {
@@ -517,6 +520,9 @@ func TestDeepCopyAgentCoversAllFields(t *testing.T) {
 	}
 	if dst.InstallAgentHooks[0] == "MUTATED" {
 		t.Error("InstallAgentHooks is not a deep copy")
+	}
+	if dst.Providers[0] == "MUTATED" {
+		t.Error("Providers is not a deep copy")
 	}
 	if dst.Pool.Min == 999 {
 		t.Error("Pool is not a deep copy")

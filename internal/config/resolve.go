@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 )
 
@@ -37,7 +38,11 @@ func ResolveProvider(agent *Agent, ws *Workspace, cityProviders map[string]Provi
 	}
 
 	// Step 2: determine provider name.
+	// If Providers list is set, select from it; otherwise fall back to Provider.
 	name := agent.Provider
+	if len(agent.Providers) > 0 {
+		name = selectProvider(agent.Providers, agent.ProviderStrategy)
+	}
 	if name == "" && ws != nil {
 		name = ws.Provider
 	}
@@ -254,4 +259,14 @@ func mergeAgentOverrides(rp *ResolvedProvider, agent *Agent) {
 			rp.Env[k] = v
 		}
 	}
+}
+
+// selectProvider picks a provider name from the list according to the strategy.
+// "random" picks uniformly at random; any other value (including "") picks the first entry.
+// Callers must ensure providers is non-empty.
+func selectProvider(providers []string, strategy string) string {
+	if strategy == "random" {
+		return providers[rand.Intn(len(providers))]
+	}
+	return providers[0]
 }

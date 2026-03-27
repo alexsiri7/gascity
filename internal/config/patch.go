@@ -43,6 +43,10 @@ type AgentPatch struct {
 	Session *string `toml:"session,omitempty"`
 	// Provider overrides the provider name.
 	Provider *string `toml:"provider,omitempty"`
+	// Providers overrides the providers list.
+	Providers []string `toml:"providers,omitempty"`
+	// ProviderStrategy overrides the provider selection strategy.
+	ProviderStrategy *string `toml:"provider_strategy,omitempty" jsonschema:"enum=first,enum=random"`
 	// StartCommand overrides the start command.
 	StartCommand *string `toml:"start_command,omitempty"`
 	// Nudge overrides the nudge text.
@@ -210,6 +214,12 @@ func applyAgentPatchFields(a *Agent, p *AgentPatch) {
 	}
 	if p.Provider != nil {
 		a.Provider = *p.Provider
+	}
+	if len(p.Providers) > 0 {
+		a.Providers = append([]string(nil), p.Providers...)
+	}
+	if p.ProviderStrategy != nil {
+		a.ProviderStrategy = *p.ProviderStrategy
 	}
 	if p.StartCommand != nil {
 		a.StartCommand = *p.StartCommand

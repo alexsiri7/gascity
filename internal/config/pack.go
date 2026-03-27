@@ -843,6 +843,12 @@ func applyAgentOverride(a *Agent, ov *AgentOverride) {
 	if ov.Provider != nil {
 		a.Provider = *ov.Provider
 	}
+	if len(ov.Providers) > 0 {
+		a.Providers = append([]string(nil), ov.Providers...)
+	}
+	if ov.ProviderStrategy != nil {
+		a.ProviderStrategy = *ov.ProviderStrategy
+	}
 	if ov.StartCommand != nil {
 		a.StartCommand = *ov.StartCommand
 	}
