@@ -45,10 +45,10 @@ const (
 	OrderFired         = "order.fired"
 	OrderCompleted     = "order.completed"
 	OrderFailed        = "order.failed"
-	ProviderSwapped      = "provider.swapped"
-	SessionStartupDead   = "session.startup_dead"
-	SessionQuotaKilled   = "session.quota_killed"
-	SessionStuckKilled   = "session.stuck_killed"
+	ProviderSwapped    = "provider.swapped"
+	SessionStartupDead = "session.startup_dead"
+	SessionQuotaKilled = "session.quota_killed"
+	SessionStuckKilled = "session.stuck_killed"
 )
 
 // Event is a single recorded occurrence in the system.

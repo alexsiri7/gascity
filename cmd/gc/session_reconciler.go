@@ -277,7 +277,7 @@ func reconcileSessionBeads(
 		if alive && stableLongEnough(*session, clk) {
 			if checkQuotaExhausted(*session, cfg, stderr) {
 				_ = store.SetMetadataBatch(session.ID, map[string]string{
-					"session_key": "",
+					"session_key":  "",
 					"last_woke_at": "",
 				})
 				session.Metadata["session_key"] = ""

@@ -406,7 +406,7 @@ func TestGcBeadsBdStartUsesRootBeadsDataDir(t *testing.T) {
 			baseEnv = append(baseEnv, e)
 		}
 	}
-	scriptEnv := append(baseEnv,
+	scriptEnv := append(baseEnv, //nolint:gocritic
 		"HOME="+homeDir,
 		"GIT_CONFIG_GLOBAL="+gitConfig,
 		"GC_CITY_PATH="+cityPath,
