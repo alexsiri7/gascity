@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gastownhall/gascity/internal/beads"
@@ -24,8 +25,10 @@ import (
 // dispatch is fire-and-forget: gate evaluation is synchronous, but each due
 // order's dispatch action runs in its own goroutine. The tracking bead
 // is created before the goroutine launches to prevent re-fire on the next tick.
+// Drain blocks until all in-flight goroutines complete; call it before process exit.
 type orderDispatcher interface {
 	dispatch(ctx context.Context, cityPath string, now time.Time)
+	Drain()
 }
 
 // ExecRunner runs a shell command with context, working directory, and
@@ -50,8 +53,9 @@ type memoryOrderDispatcher struct {
 	rec        events.Recorder
 	stderr     io.Writer
 	maxTimeout time.Duration
-	cityPath   string       // for creating rig-scoped runners; empty in tests
-	rigs       []config.Rig // for resolving rig paths; empty in tests
+	cityPath   string         // for creating rig-scoped runners; empty in tests
+	rigs       []config.Rig   // for resolving rig paths; empty in tests
+	wg         sync.WaitGroup // tracks in-flight dispatchOne goroutines
 }
 
 // buildOrderDispatcher scans formula layers for orders and returns a
@@ -131,16 +135,25 @@ func (m *memoryOrderDispatcher) dispatch(ctx context.Context, cityPath string, n
 			continue
 		}
 
-		// Fire and forget with timeout.
+		// Fire and forget with timeout. wg tracks the goroutine so Drain()
+		// can block until all in-flight dispatches complete before process exit.
 		a := a // capture loop variable
+		m.wg.Add(1)
 		go m.dispatchOne(ctx, a, cityPath, trackingBead.ID)
 	}
+}
+
+// Drain blocks until all in-flight dispatchOne goroutines complete.
+// Call before process exit to ensure deferred tracking-bead closes run.
+func (m *memoryOrderDispatcher) Drain() {
+	m.wg.Wait()
 }
 
 // dispatchOne runs a single order dispatch in its own goroutine.
 // For exec orders, runs the script directly. For formula orders,
 // instantiates a wisp. Emits events and updates the tracking bead.
 func (m *memoryOrderDispatcher) dispatchOne(ctx context.Context, a orders.Order, cityPath, trackingID string) {
+	defer m.wg.Done()
 	defer m.store.Close(trackingID) //nolint:errcheck // best-effort close
 
 	timeout := effectiveTimeout(a, m.maxTimeout)
