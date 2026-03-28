@@ -223,6 +223,29 @@ func AgentHasHooks(agent *Agent, ws *Workspace, providerName string) bool {
 	return false
 }
 
+// ResolveProviderAvoiding is like ResolveProvider but excludes avoidProvider
+// from the random selection pool when agent.Providers has more than one entry.
+// Use this on session restart to avoid re-selecting a recently quota-exhausted
+// provider. Falls back to ResolveProvider when avoidProvider is empty or only
+// one provider is configured.
+func ResolveProviderAvoiding(agent *Agent, ws *Workspace, cityProviders map[string]ProviderSpec, lookPath LookPathFunc, avoidProvider string) (*ResolvedProvider, error) {
+	if avoidProvider == "" || len(agent.Providers) <= 1 {
+		return ResolveProvider(agent, ws, cityProviders, lookPath)
+	}
+	filtered := make([]string, 0, len(agent.Providers)-1)
+	for _, p := range agent.Providers {
+		if p != avoidProvider {
+			filtered = append(filtered, p)
+		}
+	}
+	if len(filtered) == 0 {
+		return ResolveProvider(agent, ws, cityProviders, lookPath)
+	}
+	agentCopy := *agent
+	agentCopy.Providers = filtered
+	return ResolveProvider(&agentCopy, ws, cityProviders, lookPath)
+}
+
 // mergeAgentOverrides applies non-zero agent-level fields on top of the
 // resolved provider. Env merges additively (agent keys add to / override
 // base keys). All other fields replace when set.

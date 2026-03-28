@@ -91,7 +91,11 @@ func (tp TemplateParams) DisplayName() string {
 // fingerprint data (e.g., pool bounds); pass nil for pool instances.
 func resolveTemplate(p *agentBuildParams, cfgAgent *config.Agent, qualifiedName string, fpExtra map[string]string) (TemplateParams, error) {
 	// Step 1: Resolve provider preset.
-	resolved, err := config.ResolveProvider(cfgAgent, p.workspace, p.providers, p.lookPath)
+	// When the agent has multiple providers and a prior provider is recorded in
+	// the session bead, exclude that provider from random selection so that a
+	// quota-exhausted session does not restart on the same blocked provider.
+	priorProvider := p.sessionBeads.FindProviderByAgentName(qualifiedName)
+	resolved, err := config.ResolveProviderAvoiding(cfgAgent, p.workspace, p.providers, p.lookPath, priorProvider)
 	if err != nil {
 		return TemplateParams{}, fmt.Errorf("agent %q: %w", qualifiedName, err)
 	}

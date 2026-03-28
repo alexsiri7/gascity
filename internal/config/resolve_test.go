@@ -777,6 +777,91 @@ func TestResolveProviderRotationResolvesCorrectSpec(t *testing.T) {
 	}
 }
 
+// --- ResolveProviderAvoiding tests ---
+
+func TestResolveProviderAvoidingExcludesPrior(t *testing.T) {
+	// Agent has two providers; prior is "claude". All restarts should use "codex".
+	agent := &Agent{
+		Name:                 "worker",
+		Providers:            []string{"claude", "codex"},
+		ProviderStrategyName: "random",
+	}
+	lp := lookPathAll
+	for i := 0; i < 20; i++ {
+		rp, err := ResolveProviderAvoiding(agent, nil, nil, lp, "claude")
+		if err != nil {
+			t.Fatalf("iteration %d: ResolveProviderAvoiding: %v", i, err)
+		}
+		if rp.Name == "claude" {
+			t.Errorf("iteration %d: selected avoided provider %q", i, rp.Name)
+		}
+	}
+}
+
+func TestResolveProviderAvoidingFallsBackWhenOnlyOneProvider(t *testing.T) {
+	// Single provider — avoiding it should still return it (no alternative).
+	agent := &Agent{
+		Name:      "worker",
+		Providers: []string{"claude"},
+	}
+	rp, err := ResolveProviderAvoiding(agent, nil, nil, lookPathOnly("claude"), "claude")
+	if err != nil {
+		t.Fatalf("ResolveProviderAvoiding: %v", err)
+	}
+	if rp.Name != "claude" {
+		t.Errorf("Name = %q, want %q", rp.Name, "claude")
+	}
+}
+
+func TestResolveProviderAvoidingEmptyAvoidIsNoop(t *testing.T) {
+	// Empty avoidProvider — behaves identically to ResolveProvider.
+	agent := &Agent{
+		Name:      "worker",
+		Providers: []string{"claude", "codex"},
+	}
+	rp, err := ResolveProviderAvoiding(agent, nil, nil, lookPathAll, "")
+	if err != nil {
+		t.Fatalf("ResolveProviderAvoiding: %v", err)
+	}
+	if rp.Name != "claude" && rp.Name != "codex" {
+		t.Errorf("Name = %q, want claude or codex", rp.Name)
+	}
+}
+
+func TestResolveProviderAvoidingUnknownAvoidIsNoop(t *testing.T) {
+	// avoidProvider not in the list — all providers still eligible.
+	agent := &Agent{
+		Name:      "worker",
+		Providers: []string{"claude", "codex"},
+	}
+	rp, err := ResolveProviderAvoiding(agent, nil, nil, lookPathAll, "gemini")
+	if err != nil {
+		t.Fatalf("ResolveProviderAvoiding: %v", err)
+	}
+	if rp.Name != "claude" && rp.Name != "codex" {
+		t.Errorf("Name = %q, want claude or codex", rp.Name)
+	}
+}
+
+func TestResolveProviderAvoidingThreeProviders(t *testing.T) {
+	// Three providers; avoiding "codex" means only "claude" or "gemini" are selected.
+	agent := &Agent{
+		Name:                 "worker",
+		Providers:            []string{"claude", "codex", "gemini"},
+		ProviderStrategyName: "random",
+	}
+	lp := lookPathAll
+	for i := 0; i < 30; i++ {
+		rp, err := ResolveProviderAvoiding(agent, nil, nil, lp, "codex")
+		if err != nil {
+			t.Fatalf("iteration %d: ResolveProviderAvoiding: %v", i, err)
+		}
+		if rp.Name == "codex" {
+			t.Errorf("iteration %d: selected avoided provider %q", i, rp.Name)
+		}
+	}
+}
+
 func TestResolveProviderResumeCommandAgentOverride(t *testing.T) {
 	agent := &Agent{
 		Name:          "worker",

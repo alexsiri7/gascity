@@ -8,6 +8,7 @@ type sessionBeadSnapshot struct {
 	open                      []beads.Bead
 	sessionNameByAgentName    map[string]string
 	sessionNameByTemplateHint map[string]string
+	providerByAgentName       map[string]string
 }
 
 func loadSessionBeadSnapshot(store beads.Store) (*sessionBeadSnapshot, error) {
@@ -22,6 +23,7 @@ func newSessionBeadSnapshot(open []beads.Bead) *sessionBeadSnapshot {
 	filtered := make([]beads.Bead, 0, len(open))
 	sessionNameByAgentName := make(map[string]string)
 	sessionNameByTemplateHint := make(map[string]string)
+	providerByAgentName := make(map[string]string)
 
 	for _, b := range open {
 		if b.Status == "closed" {
@@ -36,6 +38,9 @@ func newSessionBeadSnapshot(open []beads.Bead) *sessionBeadSnapshot {
 		if agentName := sessionBeadAgentName(b); agentName != "" {
 			if _, exists := sessionNameByAgentName[agentName]; !exists {
 				sessionNameByAgentName[agentName] = sn
+				if prov := b.Metadata["provider"]; prov != "" {
+					providerByAgentName[agentName] = prov
+				}
 			}
 		}
 		if b.Metadata["pool_slot"] != "" {
@@ -57,6 +62,7 @@ func newSessionBeadSnapshot(open []beads.Bead) *sessionBeadSnapshot {
 		open:                      filtered,
 		sessionNameByAgentName:    sessionNameByAgentName,
 		sessionNameByTemplateHint: sessionNameByTemplateHint,
+		providerByAgentName:       providerByAgentName,
 	}
 }
 
@@ -77,4 +83,14 @@ func (s *sessionBeadSnapshot) FindSessionNameByTemplate(template string) string 
 		return sn
 	}
 	return s.sessionNameByTemplateHint[template]
+}
+
+// FindProviderByAgentName returns the provider stored in the session bead for
+// the given agent name. Returns empty string if not found or no provider set.
+// Used by resolveTemplate to avoid re-selecting a quota-exhausted provider.
+func (s *sessionBeadSnapshot) FindProviderByAgentName(agentName string) string {
+	if s == nil {
+		return ""
+	}
+	return s.providerByAgentName[agentName]
 }

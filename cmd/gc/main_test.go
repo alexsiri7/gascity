@@ -960,6 +960,52 @@ func TestFindSessionNameByTemplate_UsesLegacyAgentLabelForPoolInstance(t *testin
 	}
 }
 
+func TestFindProviderByAgentName_ReturnsStoredProvider(t *testing.T) {
+	open := []beads.Bead{
+		{
+			Status: "open",
+			Type:   sessionBeadType,
+			Labels: []string{sessionBeadLabel, "agent:worker-1"},
+			Metadata: map[string]string{
+				"session_name": "s-abc",
+				"provider":     "claude",
+			},
+		},
+	}
+	snap := newSessionBeadSnapshot(open)
+	got := snap.FindProviderByAgentName("worker-1")
+	if got != "claude" {
+		t.Errorf("FindProviderByAgentName = %q, want %q", got, "claude")
+	}
+}
+
+func TestFindProviderByAgentName_ReturnsEmptyWhenNotSet(t *testing.T) {
+	open := []beads.Bead{
+		{
+			Status: "open",
+			Type:   sessionBeadType,
+			Labels: []string{sessionBeadLabel, "agent:worker-1"},
+			Metadata: map[string]string{
+				"session_name": "s-abc",
+				// no provider field
+			},
+		},
+	}
+	snap := newSessionBeadSnapshot(open)
+	got := snap.FindProviderByAgentName("worker-1")
+	if got != "" {
+		t.Errorf("FindProviderByAgentName(no provider) = %q, want empty", got)
+	}
+}
+
+func TestFindProviderByAgentName_NilSnapshot(t *testing.T) {
+	var snap *sessionBeadSnapshot
+	got := snap.FindProviderByAgentName("worker-1")
+	if got != "" {
+		t.Errorf("FindProviderByAgentName(nil) = %q, want empty", got)
+	}
+}
+
 func TestLookupPoolSessionNames_RejectsSharedPrefixSiblingTemplates(t *testing.T) {
 	store := beads.NewMemStore()
 	for _, bead := range []beads.Bead{

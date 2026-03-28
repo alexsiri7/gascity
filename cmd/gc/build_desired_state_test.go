@@ -366,3 +366,82 @@ func TestBuildDesiredState_ManualPoolSessionInSuspendedRigStaysStopped(t *testin
 		}
 	}
 }
+
+// TestBuildDesiredState_RerollsProviderOnRestart verifies that when an agent
+// uses a multi-provider random strategy and an existing session bead records
+// "claude" as its prior provider, the desired state resolves a different
+// provider for the restart.
+func TestBuildDesiredState_RerollsProviderOnRestart(t *testing.T) {
+	cityPath := t.TempDir()
+	store := beads.NewMemStore()
+
+	// Register two custom providers so we don't depend on real binaries.
+	claudeSpec := config.ProviderSpec{Command: "fake-claude", PromptMode: "arg"}
+	geminiSpec := config.ProviderSpec{Command: "fake-gemini", PromptMode: "arg"}
+
+	cfg := &config.City{
+		Providers: map[string]config.ProviderSpec{
+			"claude": claudeSpec,
+			"gemini": geminiSpec,
+		},
+		Agents: []config.Agent{
+			{
+				Name:                 "worker",
+				Providers:            []string{"claude", "gemini"},
+				ProviderStrategyName: "random",
+				Pool: &config.PoolConfig{
+					Min:   1,
+					Max:   1,
+					Check: "printf 1",
+				},
+			},
+		},
+	}
+
+	// Create a session bead that records "claude" as the prior provider.
+	_, err := store.Create(beads.Bead{
+		Title:  "worker",
+		Type:   sessionBeadType,
+		Labels: []string{sessionBeadLabel, "agent:worker"},
+		Metadata: map[string]string{
+			"session_name": "s-worker-1",
+			"template":     "worker",
+			"provider":     "claude",
+		},
+	})
+	if err != nil {
+		t.Fatalf("creating session bead: %v", err)
+	}
+
+	// Use a fake lookPath that accepts both providers.
+	fakeLookPath := func(name string) (string, error) {
+		if name == "fake-claude" || name == "fake-gemini" {
+			return "/usr/local/bin/" + name, nil
+		}
+		return "", os.ErrNotExist
+	}
+
+	snap, err := loadSessionBeadSnapshot(store)
+	if err != nil {
+		t.Fatalf("loadSessionBeadSnapshot: %v", err)
+	}
+
+	bp := newAgentBuildParams("test-city", cityPath, cfg, runtime.NewFake(), time.Now(), store, io.Discard)
+	bp.lookPath = fakeLookPath
+	bp.sessionBeads = snap
+
+	agent := &cfg.Agents[0]
+	tp, err := resolveTemplate(bp, agent, "worker", nil)
+	if err != nil {
+		t.Fatalf("resolveTemplate: %v", err)
+	}
+
+	// With "claude" as the prior provider, the resolved provider should always
+	// be "gemini" (the only remaining option).
+	if tp.ResolvedProvider == nil {
+		t.Fatal("ResolvedProvider is nil")
+	}
+	if tp.ResolvedProvider.Name == "claude" {
+		t.Errorf("resolveTemplate selected avoided provider %q; want gemini", tp.ResolvedProvider.Name)
+	}
+}
