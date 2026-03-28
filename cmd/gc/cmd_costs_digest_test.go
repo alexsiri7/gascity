@@ -13,16 +13,15 @@ import (
 )
 
 // makeCityDir creates a temp city dir with .gc/ so resolveCity() accepts it.
-// Sets GC_CITY env var and returns the city dir and costs dir paths.
-func makeCityDir(t *testing.T) (costsDir string) {
+// Sets GC_CITY env var and returns the costs dir path.
+func makeCityDir(t *testing.T) string {
 	t.Helper()
 	cityDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(cityDir, ".gc"), 0o755); err != nil {
 		t.Fatalf("creating .gc: %v", err)
 	}
 	t.Setenv("GC_CITY", cityDir)
-	costsDir = filepath.Join(cityDir, ".gc", "runtime", "costs")
-	return costsDir
+	return filepath.Join(cityDir, ".gc", "runtime", "costs")
 }
 
 // writeCostRecords writes cost records to the costs dir for testing.

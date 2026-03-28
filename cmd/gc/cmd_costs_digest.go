@@ -64,7 +64,7 @@ type digestRigRow struct {
 }
 
 // cmdCostsDigest is the pure implementation of "gc costs digest".
-func cmdCostsDigest(_, flagWeek, flagJSON bool, stdout, stderr io.Writer) error {
+func cmdCostsDigest(_ bool, flagWeek, flagJSON bool, stdout, stderr io.Writer) error {
 	cityPath, err := resolveCity()
 	if err != nil {
 		return fmt.Errorf("cannot resolve city: %w", err)
