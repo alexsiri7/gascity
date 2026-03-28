@@ -43,11 +43,11 @@ Use --json to get machine-readable output.`,
 
 // digestDay is a summary for a single day (used in JSON output).
 type digestDay struct {
-	Date         string           `json:"date"`
-	ByRole       []digestRoleRow  `json:"by_role"`
-	ByRig        []digestRigRow   `json:"by_rig"`
-	TotalInput   int64            `json:"total_input_tokens"`
-	TotalOutput  int64            `json:"total_output_tokens"`
+	Date        string          `json:"date"`
+	ByRole      []digestRoleRow `json:"by_role"`
+	ByRig       []digestRigRow  `json:"by_rig"`
+	TotalInput  int64           `json:"total_input_tokens"`
+	TotalOutput int64           `json:"total_output_tokens"`
 }
 
 // digestRoleRow is per-role token totals.
@@ -64,7 +64,7 @@ type digestRigRow struct {
 }
 
 // cmdCostsDigest is the pure implementation of "gc costs digest".
-func cmdCostsDigest(flagToday, flagWeek, flagJSON bool, stdout, stderr io.Writer) error {
+func cmdCostsDigest(_, flagWeek, flagJSON bool, stdout, stderr io.Writer) error {
 	cityPath, err := resolveCity()
 	if err != nil {
 		return fmt.Errorf("cannot resolve city: %w", err)
@@ -185,11 +185,11 @@ func renderDigestDayText(records []costlog.Record, date time.Time, w io.Writer) 
 	if len(byRole) > 0 {
 		fmt.Fprintln(w, "By Role:") //nolint:errcheck
 		for _, row := range byRole {
-			fmt.Fprintf(w, "  %-24s %s input  (%s output)\n",
+			fmt.Fprintf(w, "  %-24s %s input  (%s output)\n", //nolint:errcheck
 				row.Role,
 				formatTokens(row.InputTokens),
 				formatTokens(row.OutputTokens),
-			) //nolint:errcheck
+			)
 		}
 		fmt.Fprintln(w) //nolint:errcheck
 	}
@@ -204,8 +204,8 @@ func renderDigestDayText(records []costlog.Record, date time.Time, w io.Writer) 
 	}
 
 	totalIn, totalOut := sumTotals(records)
-	fmt.Fprintf(w, "TOTAL: %s input tokens, %s output tokens\n",
-		formatTokens(totalIn), formatTokens(totalOut)) //nolint:errcheck
+	fmt.Fprintf(w, "TOTAL: %s input tokens, %s output tokens\n", //nolint:errcheck
+		formatTokens(totalIn), formatTokens(totalOut))
 	return nil
 }
 
@@ -237,11 +237,11 @@ func renderDigestWeekText(records []costlog.Record, dates []time.Time, w io.Writ
 	if len(byRole) > 0 {
 		fmt.Fprintln(w, "By Role:") //nolint:errcheck
 		for _, row := range byRole {
-			fmt.Fprintf(w, "  %-24s %s input  (%s output)\n",
+			fmt.Fprintf(w, "  %-24s %s input  (%s output)\n", //nolint:errcheck
 				row.Role,
 				formatTokens(row.InputTokens),
 				formatTokens(row.OutputTokens),
-			) //nolint:errcheck
+			)
 		}
 		fmt.Fprintln(w) //nolint:errcheck
 	}
@@ -256,8 +256,8 @@ func renderDigestWeekText(records []costlog.Record, dates []time.Time, w io.Writ
 	}
 
 	totalIn, totalOut := sumTotals(records)
-	fmt.Fprintf(w, "TOTAL: %s input tokens, %s output tokens\n",
-		formatTokens(totalIn), formatTokens(totalOut)) //nolint:errcheck
+	fmt.Fprintf(w, "TOTAL: %s input tokens, %s output tokens\n", //nolint:errcheck
+		formatTokens(totalIn), formatTokens(totalOut))
 	return nil
 }
 

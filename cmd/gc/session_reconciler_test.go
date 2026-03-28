@@ -217,7 +217,6 @@ func (e *reconcilerTestEnv) createSessionBeadWithHash(name, template, coreHash s
 	return b
 }
 
-
 func (e *reconcilerTestEnv) setSessionMetadata(session *beads.Bead, kvs map[string]string) {
 	for key, value := range kvs {
 		_ = e.store.SetMetadata(session.ID, key, value)

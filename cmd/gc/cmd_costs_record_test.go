@@ -37,7 +37,7 @@ func TestResolveStopHookContext_StdinJSON(t *testing.T) {
 	}
 }
 
-func TestResolveStopHookContext_EmptyStdin(t *testing.T) {
+func TestResolveStopHookContext_EmptyStdin(_ *testing.T) {
 	r := strings.NewReader("")
 	file, sessionID, cwd := resolveStopHookContext("", r)
 	_ = file

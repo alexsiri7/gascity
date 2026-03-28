@@ -251,7 +251,7 @@ func orderExecEnv(cityPath, rigBeadsDir string, a orders.Order) []string {
 }
 
 // dispatchWisp instantiates a wisp from the order's formula.
-func (m *memoryOrderDispatcher) dispatchWisp(ctx context.Context, a orders.Order, cityPath, trackingID string) {
+func (m *memoryOrderDispatcher) dispatchWisp(ctx context.Context, a orders.Order, _, trackingID string) {
 	scoped := a.ScopedName()
 
 	if err := ctx.Err(); err != nil {

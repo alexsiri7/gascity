@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -406,7 +407,7 @@ func TestGcBeadsBdStartUsesRootBeadsDataDir(t *testing.T) {
 			baseEnv = append(baseEnv, e)
 		}
 	}
-	scriptEnv := append(baseEnv,
+	scriptEnv := append(slices.Clone(baseEnv),
 		"HOME="+homeDir,
 		"GIT_CONFIG_GLOBAL="+gitConfig,
 		"GC_CITY_PATH="+cityPath,

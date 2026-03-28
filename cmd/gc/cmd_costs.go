@@ -200,7 +200,6 @@ func cmdCosts(byRole, byRig, today, week bool, window string, jsonOut bool, stdo
 	}
 
 	// Aggregate rows into display entries.
-	type key struct{ k string }
 	agg := make(map[string]*costsEntry)
 	var order []string
 
@@ -303,7 +302,7 @@ func cmdCosts(byRole, byRig, today, week bool, window string, jsonOut bool, stdo
 
 // buildSessionKeyIndex builds a map of sessionUUID → sessionName by scanning
 // all session beads in the city store. Best-effort: returns empty map on error.
-func buildSessionKeyIndex(stderr io.Writer) map[string]string {
+func buildSessionKeyIndex(_ io.Writer) map[string]string {
 	out := make(map[string]string)
 	cityPath, err := resolveCity()
 	if err != nil {

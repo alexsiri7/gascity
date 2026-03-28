@@ -26,7 +26,7 @@ func TestRandomStrategySelectMultiple(t *testing.T) {
 	}
 }
 
-func TestRandomStrategyImplementsInterface(t *testing.T) {
+func TestRandomStrategyImplementsInterface(_ *testing.T) {
 	var _ ProviderStrategy = RandomStrategy{}
 }
 

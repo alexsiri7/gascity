@@ -14,15 +14,15 @@ import (
 
 // makeCityDir creates a temp city dir with .gc/ so resolveCity() accepts it.
 // Sets GC_CITY env var and returns the city dir and costs dir paths.
-func makeCityDir(t *testing.T) (cityDir, costsDir string) {
+func makeCityDir(t *testing.T) (costsDir string) {
 	t.Helper()
-	cityDir = t.TempDir()
+	cityDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(cityDir, ".gc"), 0o755); err != nil {
 		t.Fatalf("creating .gc: %v", err)
 	}
 	t.Setenv("GC_CITY", cityDir)
 	costsDir = filepath.Join(cityDir, ".gc", "runtime", "costs")
-	return cityDir, costsDir
+	return costsDir
 }
 
 // writeCostRecords writes cost records to the costs dir for testing.
@@ -96,7 +96,7 @@ func TestAggregateByRig(t *testing.T) {
 }
 
 func TestCmdCostsDigest_NoData(t *testing.T) {
-	_, _ = makeCityDir(t)
+	_ = makeCityDir(t)
 
 	var stdout, stderr bytes.Buffer
 	err := cmdCostsDigest(false, false, false, &stdout, &stderr)
@@ -109,7 +109,7 @@ func TestCmdCostsDigest_NoData(t *testing.T) {
 }
 
 func TestCmdCostsDigest_NoDataJSON(t *testing.T) {
-	_, _ = makeCityDir(t)
+	_ = makeCityDir(t)
 
 	var stdout, stderr bytes.Buffer
 	err := cmdCostsDigest(false, false, true, &stdout, &stderr)
@@ -122,7 +122,7 @@ func TestCmdCostsDigest_NoDataJSON(t *testing.T) {
 }
 
 func TestCmdCostsDigest_Today(t *testing.T) {
-	_, costsDir := makeCityDir(t)
+	costsDir := makeCityDir(t)
 
 	now := time.Now().UTC()
 	records := []costlog.Record{
@@ -173,7 +173,7 @@ func TestCmdCostsDigest_Today(t *testing.T) {
 }
 
 func TestCmdCostsDigest_TodayJSON(t *testing.T) {
-	_, costsDir := makeCityDir(t)
+	costsDir := makeCityDir(t)
 
 	now := time.Now().UTC()
 	records := []costlog.Record{
@@ -213,7 +213,7 @@ func TestCmdCostsDigest_TodayJSON(t *testing.T) {
 }
 
 func TestCmdCostsDigest_Week(t *testing.T) {
-	_, costsDir := makeCityDir(t)
+	costsDir := makeCityDir(t)
 
 	now := time.Now().UTC()
 	// Write records for today and 3 days ago.
@@ -254,7 +254,7 @@ func TestCmdCostsDigest_Week(t *testing.T) {
 }
 
 func TestCmdCostsDigest_WeekJSON(t *testing.T) {
-	_, costsDir := makeCityDir(t)
+	costsDir := makeCityDir(t)
 
 	now := time.Now().UTC()
 	records := []costlog.Record{
@@ -293,7 +293,7 @@ func TestCmdCostsDigest_WeekJSON(t *testing.T) {
 }
 
 func TestCmdCostsDigest_RoleWithoutRig(t *testing.T) {
-	_, costsDir := makeCityDir(t)
+	costsDir := makeCityDir(t)
 
 	now := time.Now().UTC()
 	records := []costlog.Record{
@@ -328,7 +328,7 @@ func TestCmdCostsDigest_RoleWithoutRig(t *testing.T) {
 func TestCmdCostsDigest_NoDataIsolated(t *testing.T) {
 	// Verify that with a fresh city that has no cost records, the command
 	// produces the "no data" message and does not panic.
-	_, _ = makeCityDir(t)
+	_ = makeCityDir(t)
 
 	var stdout, stderr bytes.Buffer
 	err := cmdCostsDigest(false, false, false, &stdout, &stderr)

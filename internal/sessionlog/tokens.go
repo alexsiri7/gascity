@@ -8,11 +8,11 @@ import (
 
 // TokenTotals holds cumulative token usage summed across all API calls in a session.
 type TokenTotals struct {
-	InputTokens          int64  `json:"input_tokens"`
-	OutputTokens         int64  `json:"output_tokens"`
-	CacheReadTokens      int64  `json:"cache_read_tokens"`
-	CacheCreationTokens  int64  `json:"cache_creation_tokens"`
-	Model                string `json:"model"`
+	InputTokens         int64  `json:"input_tokens"`
+	OutputTokens        int64  `json:"output_tokens"`
+	CacheReadTokens     int64  `json:"cache_read_tokens"`
+	CacheCreationTokens int64  `json:"cache_creation_tokens"`
+	Model               string `json:"model"`
 }
 
 // tokenUsageEntry is the minimal structure decoded from each JSONL line
