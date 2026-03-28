@@ -505,6 +505,7 @@ func reconcileSessionBeads(
 		wakeTargets = append(wakeTargets, wakeTarget{session: session, tp: tp, alive: alive})
 	}
 
+
 	evalInput := make([]beads.Bead, len(wakeTargets))
 	for i, target := range wakeTargets {
 		evalInput[i] = *target.session

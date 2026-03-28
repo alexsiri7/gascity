@@ -61,7 +61,7 @@ stdout 'Create a script that prints hello world'
 
 cd $WORK/bright-lights
 
-# Sling a bead to an agent (coverage for tutorial's "gc sling claude" usage)
+# Sling work to a provider (requires real Claude, stubbed here)
 # exec gc sling claude
 
 # Start the city (already initialized)
