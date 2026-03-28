@@ -30,6 +30,7 @@ City is the top-level configuration for a Gas City instance.
 | `chat_sessions` | ChatSessionsConfig |  |  | ChatSessions configures chat session behavior (auto-suspend). |
 | `session_sleep` | SessionSleepConfig |  |  | SessionSleep configures idle sleep policy defaults for managed sessions. |
 | `convergence` | ConvergenceConfig |  |  | Convergence configures convergence loop limits. |
+| `budget` | BudgetConfig |  |  | Budget configures the token budget circuit breaker. |
 | `service` | []Service |  |  | Services declares workspace-owned HTTP services mounted on the controller edge under /svc/&#123;name&#125;. |
 | `agent_defaults` | AgentDefaults |  |  | AgentDefaults provides default values applied to all agents that don't override them. Useful for setting city-wide model, wake_mode, and overlay allowlists. |
 
@@ -205,6 +206,15 @@ BeadsConfig holds bead store settings.
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `provider` | string |  | `bd` | Provider selects the bead store backend: "bd" (default), "file", or "exec:&lt;script&gt;" for a user-supplied script. |
+
+## BudgetConfig
+
+BudgetConfig holds token budget circuit breaker settings.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `max_input_tokens` | integer |  |  | MaxInputTokens is the rolling-window input token limit. 0 means disabled. Input tokens include cache reads and cache writes. |
+| `window` | string |  | `1h` | Window is the rolling time window for token summation. Duration string (e.g., "1h", "24h"). Defaults to "1h". |
 
 ## ChatSessionsConfig
 

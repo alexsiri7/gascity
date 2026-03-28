@@ -98,6 +98,8 @@ type City struct {
 	SessionSleep SessionSleepConfig `toml:"session_sleep,omitempty"`
 	// Convergence configures convergence loop limits.
 	Convergence ConvergenceConfig `toml:"convergence,omitempty"`
+	// Budget configures the token budget circuit breaker.
+	Budget BudgetConfig `toml:"budget,omitempty"`
 	// Services declares workspace-owned HTTP services mounted on the
 	// controller edge under /svc/{name}.
 	Services []Service `toml:"service,omitempty"`
@@ -853,6 +855,32 @@ func (c ChatSessionsConfig) IdleTimeoutDuration() time.Duration {
 		return 0
 	}
 	return d
+}
+
+// BudgetConfig holds token budget circuit breaker settings.
+// When MaxInputTokens is set, the controller sums input tokens from all
+// Claude JSONL session files modified within Window and stops the city
+// if the total exceeds the threshold.
+type BudgetConfig struct {
+	// MaxInputTokens is the rolling-window input token limit.
+	// 0 means disabled. Input tokens include cache reads and cache writes.
+	MaxInputTokens int64 `toml:"max_input_tokens,omitempty"`
+	// Window is the rolling time window for token summation.
+	// Duration string (e.g., "1h", "24h"). Defaults to "1h".
+	Window string `toml:"window,omitempty" jsonschema:"default=1h"`
+}
+
+// WindowDuration returns the window as a time.Duration.
+// Defaults to 1h if empty or unparseable.
+func (b BudgetConfig) WindowDuration() time.Duration {
+	if b.Window == "" {
+		return time.Hour
+	}
+	dur, err := time.ParseDuration(b.Window)
+	if err != nil {
+		return time.Hour
+	}
+	return dur
 }
 
 // ConvergenceConfig holds convergence loop limits.
