@@ -855,6 +855,9 @@ func applyAgentOverride(a *Agent, ov *AgentOverride) {
 	if ov.Nudge != nil {
 		a.Nudge = *ov.Nudge
 	}
+	if ov.WorkQuery != nil {
+		a.WorkQuery = *ov.WorkQuery
+	}
 	if ov.IdleTimeout != nil {
 		a.IdleTimeout = *ov.IdleTimeout
 	}

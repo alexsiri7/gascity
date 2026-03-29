@@ -274,6 +274,8 @@ type AgentOverride struct {
 	StartCommand *string `toml:"start_command,omitempty"`
 	// Nudge overrides the nudge text.
 	Nudge *string `toml:"nudge,omitempty"`
+	// WorkQuery overrides the agent's work_query command.
+	WorkQuery *string `toml:"work_query,omitempty"`
 	// IdleTimeout overrides the idle timeout duration string (e.g., "30s", "5m", "1h").
 	IdleTimeout *string `toml:"idle_timeout,omitempty"`
 	// StuckTimeout overrides the stuck timeout duration string (e.g., "30m", "2h").

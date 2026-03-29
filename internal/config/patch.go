@@ -83,6 +83,8 @@ type AgentPatch struct {
 	DependsOn []string `toml:"depends_on,omitempty"`
 	// ResumeCommand overrides the agent's resume_command template.
 	ResumeCommand *string `toml:"resume_command,omitempty"`
+	// WorkQuery overrides the agent's work_query command.
+	WorkQuery *string `toml:"work_query,omitempty"`
 	// WakeMode overrides the agent's wake mode ("resume" or "fresh").
 	WakeMode *string `toml:"wake_mode,omitempty" jsonschema:"enum=resume,enum=fresh"`
 	// PreStartAppend appends commands to the agent's pre_start list
@@ -228,6 +230,9 @@ func applyAgentPatchFields(a *Agent, p *AgentPatch) {
 	}
 	if p.Nudge != nil {
 		a.Nudge = *p.Nudge
+	}
+	if p.WorkQuery != nil {
+		a.WorkQuery = *p.WorkQuery
 	}
 	if p.IdleTimeout != nil {
 		a.IdleTimeout = *p.IdleTimeout
