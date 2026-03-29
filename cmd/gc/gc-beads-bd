@@ -987,10 +987,10 @@ op_stop_impl() {
         return 0
     fi
 
-    # SIGTERM and wait (10 × 500ms = 5s grace, matches upstream).
+    # SIGTERM and wait (60 × 500ms = 30s grace — large journals need time to flush).
     kill "$pid" 2>/dev/null || true
     local waited=0
-    while [ "$waited" -lt 10 ]; do
+    while [ "$waited" -lt 60 ]; do
         if ! kill -0 "$pid" 2>/dev/null; then
             # Clean up state files.
             save_state 0 false
