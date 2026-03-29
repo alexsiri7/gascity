@@ -275,8 +275,13 @@ func ensureSessionNameAvailable(store beads.Store, name string) error {
 			continue
 		}
 		// Explicit session names are permanent identities; once claimed by any
-		// session bead, including a closed one, they are never reused.
+		// session bead, including a closed one, they are never reused — UNLESS
+		// the bead is closed and belongs to a configured named session (which
+		// must be able to reclaim its name after a city restart).
 		if strings.TrimSpace(b.Metadata["session_name"]) == name {
+			if b.Status == "closed" && strings.TrimSpace(b.Metadata["configured_named_session"]) == "true" {
+				continue // allow configured named sessions to reclaim their name
+			}
 			return fmt.Errorf("%w: %q already belongs to %s", ErrSessionNameExists, name, b.ID)
 		}
 		if b.Status == "closed" {
@@ -368,6 +373,12 @@ func ensureConfiguredSessionNameAvailable(store beads.Store, cfg *config.City, n
 		if selfOwner != "" && selfOwner == reserved {
 			return nil
 		}
+		// When selfID is empty, we are creating a NEW session bead. If the
+		// reservation matches what we are trying to create (same named session),
+		// allow it — the named session is claiming its own reserved name.
+		if selfID == "" {
+			return nil
+		}
 		return fmt.Errorf("%w: %q reserved for configured named session %s", ErrSessionNameExists, name, reserved)
 	}
 	return nil
@@ -421,6 +432,11 @@ func ensureSessionAliasAvailable(store beads.Store, cfg *config.City, alias, sel
 				selfOwner = configuredNamedSessionOwnerForBead(selfBead, reserved)
 			}
 			if selfOwner != "" && selfOwner == reserved {
+				return nil
+			}
+			// When selfID is empty, we are creating a NEW session bead for
+			// the configured named session — allow it to claim its own alias.
+			if selfID == "" {
 				return nil
 			}
 			return fmt.Errorf("%w: %q reserved for configured named session %s", ErrSessionAliasExists, alias, reserved)

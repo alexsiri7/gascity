@@ -460,7 +460,7 @@ func syncSessionBeadsWithSnapshot(
 			}
 			appliedWithLock := false
 			lockErr := session.WithCitySessionAliasLock(cityPath, lockAlias, func() error {
-				if err := session.EnsureAliasAvailableWithConfig(store, cfg, managedAlias, b.ID); err != nil {
+				if err := session.EnsureAliasAvailableWithConfigForOwner(store, cfg, managedAlias, b.ID, managedAlias); err != nil {
 					fmt.Fprintf(stderr, "session beads: alias %q for %s unavailable: %v\n", managedAlias, agentName, err) //nolint:errcheck
 				} else {
 					for key, value := range session.UpdatedAliasMetadata(b.Metadata, managedAlias) {

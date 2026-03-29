@@ -223,7 +223,7 @@ func TestEnsureAliasAvailable_RejectsLiveSessionNameCollision(t *testing.T) {
 	}
 }
 
-func TestEnsureAliasAvailableWithConfig_RejectsConfiguredSingletonAlias(t *testing.T) {
+func TestEnsureAliasAvailableWithConfig_AllowsNewBeadForConfiguredSingleton(t *testing.T) {
 	store := beads.NewMemStore()
 	cfg := &config.City{
 		NamedSessions: []config.NamedSession{
@@ -232,8 +232,10 @@ func TestEnsureAliasAvailableWithConfig_RejectsConfiguredSingletonAlias(t *testi
 		},
 	}
 
-	if err := EnsureAliasAvailableWithConfig(store, cfg, "myrig/polecat", ""); !errors.Is(err, ErrSessionAliasExists) {
-		t.Fatalf("EnsureAliasAvailableWithConfig(reserved singleton) error = %v, want %v", err, ErrSessionAliasExists)
+	// When selfID is empty (creating a new bead), the configured named session
+	// should be allowed to claim its own reserved alias.
+	if err := EnsureAliasAvailableWithConfig(store, cfg, "myrig/polecat", ""); err != nil {
+		t.Fatalf("EnsureAliasAvailableWithConfig(new bead for configured singleton) error = %v, want nil", err)
 	}
 }
 
@@ -316,8 +318,10 @@ func TestEnsureSessionNameAvailableWithConfig_UsesResolvedWorkspaceName(t *testi
 		},
 	}
 
-	if err := EnsureSessionNameAvailableWithConfig(store, cfg, "test-city--mayor", ""); !errors.Is(err, ErrSessionNameExists) {
-		t.Fatalf("EnsureSessionNameAvailableWithConfig(resolved workspace name) error = %v, want %v", err, ErrSessionNameExists)
+	// When selfID is empty (creating a new bead), the configured named session
+	// should be allowed to claim its own reserved name.
+	if err := EnsureSessionNameAvailableWithConfig(store, cfg, "test-city--mayor", ""); err != nil {
+		t.Fatalf("EnsureSessionNameAvailableWithConfig(new bead for configured named session) error = %v, want nil", err)
 	}
 	if err := EnsureSessionNameAvailableWithConfigForOwner(store, cfg, "test-city--mayor", "", "mayor"); err != nil {
 		t.Fatalf("EnsureSessionNameAvailableWithConfigForOwner(self resolved workspace name) = %v, want nil", err)
