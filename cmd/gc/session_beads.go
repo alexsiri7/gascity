@@ -187,6 +187,50 @@ func syncSessionBeadsWithSnapshot(
 		}
 
 		b, exists := bySessionName[sn]
+		// If no bead found by session_name, check by alias or agent_name.
+		// This handles duplicate bead creation when:
+		// 1. A previous tick created a bead with an auto-generated session_name
+		//    but the alias was successfully set (match by alias).
+		// 2. A previous tick created a "bare" bead where the alias check failed
+		//    (match by agent_name/template for configured named sessions).
+		if !exists && managedAlias != "" {
+			// Look for an existing open bead that already holds this alias.
+			// This prevents duplicate bead creation when a previous tick
+			// created a bead with an auto-generated session_name.
+			for _, ob := range openBeads {
+				if ob.Status == "closed" {
+					continue
+				}
+				if strings.TrimSpace(ob.Metadata["alias"]) != managedAlias {
+					continue
+				}
+				// Only adopt if the existing bead belongs to the same agent.
+				// Don't adopt a "squatter" bead that happens to hold the alias.
+				obAgent := strings.TrimSpace(ob.Metadata["agent_name"])
+				obCNI := strings.TrimSpace(ob.Metadata[namedSessionIdentityMetadata])
+				if obCNI == tp.ConfiguredNamedIdentity || obAgent == agentName {
+					b = ob
+					exists = true
+					break
+				}
+			}
+		}
+		if !exists && isConfiguredNamed {
+			// Scan for bare beads (no alias) created by the controller for
+			// this same agent on a previous tick where alias sync failed.
+			for _, ob := range openBeads {
+				if ob.Status == "closed" {
+					continue
+				}
+				obAgent := strings.TrimSpace(ob.Metadata["agent_name"])
+				obAlias := strings.TrimSpace(ob.Metadata["alias"])
+				if obAlias == "" && obAgent == agentName {
+					b = ob
+					exists = true
+					break
+				}
+			}
+		}
 		if !exists {
 			// Create a new session bead.
 			meta := map[string]string{
