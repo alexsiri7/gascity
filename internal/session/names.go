@@ -274,16 +274,9 @@ func ensureSessionNameAvailable(store beads.Store, name string) error {
 		if b.Type != BeadType {
 			continue
 		}
-		// Explicit session names are permanent identities; once claimed by any
-		// session bead, including a closed one, they are never reused — UNLESS
-		// the bead is closed and belongs to a configured named session (which
-		// must be able to reclaim its name after a city restart).
-		if strings.TrimSpace(b.Metadata["session_name"]) == name {
-			if b.Status == "closed" && strings.TrimSpace(b.Metadata["configured_named_session"]) == "true" {
-				continue // allow configured named sessions to reclaim their name
-			}
-			return fmt.Errorf("%w: %q already belongs to %s", ErrSessionNameExists, name, b.ID)
-		}
+		// Skip closed beads entirely — a closed bead is a completed lifecycle
+		// record. Agents must be able to reclaim their session name after a
+		// city restart without being blocked by their own closed predecessor.
 		if b.Status == "closed" {
 			continue
 		}
