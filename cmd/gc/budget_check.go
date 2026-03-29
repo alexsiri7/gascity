@@ -15,28 +15,28 @@ import (
 
 // checkTokenBudget reads token usage from Claude JSONL session files
 // modified within the configured window and stops the city if the total
-// input token count exceeds the threshold. Returns true if the budget is
-// exceeded and the city is being stopped.
+// input or output token count exceeds the configured threshold. Returns
+// true if a budget is exceeded and the city is being stopped.
 //
+// searchPaths must already be resolved (e.g. via sessionlog.MergeSearchPaths).
 // This runs on every controller reconcile tick. It is read-only and
 // zero-cost — no API calls, no agent interaction.
 func checkTokenBudget(
 	ctx context.Context,
 	cfg config.BudgetConfig,
-	observePaths []string,
+	searchPaths []string,
 	now time.Time,
 	stdout, stderr io.Writer,
 	cancelFn context.CancelFunc,
 ) bool {
-	if cfg.MaxInputTokens <= 0 {
+	if cfg.MaxInputTokens <= 0 && cfg.MaxOutputTokens <= 0 {
 		return false
 	}
 
 	window := cfg.WindowDuration()
 	cutoff := now.Add(-window)
 
-	searchPaths := sessionlog.MergeSearchPaths(observePaths)
-	var total int64
+	var totalInput, totalOutput int64
 
 	for _, root := range searchPaths {
 		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -55,32 +55,43 @@ func checkTokenBudget(
 				return nil
 			}
 			// Input tokens = raw input + cache reads + cache writes.
-			total += totals.InputTokens + totals.CacheReadTokens + totals.CacheCreationTokens
+			totalInput += totals.InputTokens + totals.CacheReadTokens + totals.CacheCreationTokens
+			totalOutput += totals.OutputTokens
 			return nil
 		})
 	}
 
-	if total <= cfg.MaxInputTokens {
-		return false
+	if cfg.MaxInputTokens > 0 && totalInput > cfg.MaxInputTokens {
+		fmt.Fprintf(stderr, //nolint:errcheck // best-effort stderr
+			"gc start: [budget] token limit exceeded: %d input tokens in last %s (limit %d) — stopping city\n",
+			totalInput, window, cfg.MaxInputTokens)
+		fmt.Fprintf(stdout, //nolint:errcheck // best-effort stdout
+			"[budget] Token limit exceeded (%d/%d input tokens in last %s). Stopping.\n",
+			totalInput, cfg.MaxInputTokens, window)
+		_ = os.Stderr.Sync()
+		cancelFn()
+		return true
 	}
 
-	fmt.Fprintf(stderr, //nolint:errcheck // best-effort stderr
-		"gc start: [budget] token limit exceeded: %d input tokens in last %s (limit %d) — stopping city\n",
-		total, window, cfg.MaxInputTokens)
-	fmt.Fprintf(stdout, //nolint:errcheck // best-effort stdout
-		"[budget] Token limit exceeded (%d/%d input tokens in last %s). Stopping.\n",
-		total, cfg.MaxInputTokens, window)
+	if cfg.MaxOutputTokens > 0 && totalOutput > cfg.MaxOutputTokens {
+		fmt.Fprintf(stderr, //nolint:errcheck // best-effort stderr
+			"gc start: [budget] token limit exceeded: %d output tokens in last %s (limit %d) — stopping city\n",
+			totalOutput, window, cfg.MaxOutputTokens)
+		fmt.Fprintf(stdout, //nolint:errcheck // best-effort stdout
+			"[budget] Token limit exceeded (%d/%d output tokens in last %s). Stopping.\n",
+			totalOutput, cfg.MaxOutputTokens, window)
+		_ = os.Stderr.Sync()
+		cancelFn()
+		return true
+	}
 
-	// Record to stderr before cancel so the message is visible.
-	_ = os.Stderr.Sync()
-	cancelFn()
-	return true
+	return false
 }
 
 // newBudgetChecker returns a function suitable for calling from tick()
 // that closes over the cancel func.
 func newBudgetChecker(cancelFn context.CancelFunc) func(context.Context, config.BudgetConfig, []string, time.Time, io.Writer, io.Writer) bool {
 	return func(ctx context.Context, cfg config.BudgetConfig, observePaths []string, now time.Time, stdout, stderr io.Writer) bool {
-		return checkTokenBudget(ctx, cfg, observePaths, now, stdout, stderr, cancelFn)
+		return checkTokenBudget(ctx, cfg, sessionlog.MergeSearchPaths(observePaths), now, stdout, stderr, cancelFn)
 	}
 }

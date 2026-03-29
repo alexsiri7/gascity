@@ -860,13 +860,17 @@ func (c ChatSessionsConfig) IdleTimeoutDuration() time.Duration {
 }
 
 // BudgetConfig holds token budget circuit breaker settings.
-// When MaxInputTokens is set, the controller sums input tokens from all
-// Claude JSONL session files modified within Window and stops the city
-// if the total exceeds the threshold.
+// When MaxInputTokens or MaxOutputTokens is set, the controller sums the
+// respective token counts from all Claude JSONL session files modified
+// within Window and stops the city if the total exceeds the threshold.
 type BudgetConfig struct {
 	// MaxInputTokens is the rolling-window input token limit.
 	// 0 means disabled. Input tokens include cache reads and cache writes.
 	MaxInputTokens int64 `toml:"max_input_tokens,omitempty"`
+	// MaxOutputTokens is the rolling-window output token limit.
+	// 0 means disabled. Claude rate limits are on output tokens (not input),
+	// so this is the primary circuit breaker for the Max 20x plan.
+	MaxOutputTokens int64 `toml:"max_output_tokens,omitempty"`
 	// Window is the rolling time window for token summation.
 	// Duration string (e.g., "1h", "24h"). Defaults to "1h".
 	Window string `toml:"window,omitempty" jsonschema:"default=1h"`

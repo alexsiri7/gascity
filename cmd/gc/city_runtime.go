@@ -165,7 +165,7 @@ func newCityRuntime(p CityRuntimeParams) *CityRuntime {
 		stdout:    p.Stdout,
 		stderr:    p.Stderr,
 	}
-	if p.CancelFn != nil && p.Cfg.Budget.MaxInputTokens > 0 {
+	if p.CancelFn != nil && (p.Cfg.Budget.MaxInputTokens > 0 || p.Cfg.Budget.MaxOutputTokens > 0) {
 		cr.checkBudget = newBudgetChecker(p.CancelFn)
 	}
 	cr.svc = workspacesvc.NewManager(&serviceRuntime{cr: cr})
