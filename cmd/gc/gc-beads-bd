@@ -987,10 +987,21 @@ op_stop_impl() {
         return 0
     fi
 
-    # SIGTERM and wait (10 × 500ms = 5s grace, matches upstream).
+    # Compact the journal before stopping to reduce flush time.
+    # Large journals (50-100MB) take longer to flush on SIGTERM; running gc
+    # first shrinks what the server needs to write on graceful shutdown.
+    # Non-fatal: if the server is already unhealthy, proceed with stop anyway.
+    if tcp_check 2>/dev/null; then
+        server_sql "CALL dolt_gc()" >/dev/null 2>&1 || true
+    fi
+
+    # SIGTERM and wait (60 × 500ms = 30s grace).
+    # Dolt needs time to flush large journals — 5s is not enough for 50-100MB.
+    # We never SIGKILL: a mid-flush SIGKILL corrupts the journal (same outcome
+    # as no graceful stop at all), so if 30s isn't enough something is wrong.
     kill "$pid" 2>/dev/null || true
     local waited=0
-    while [ "$waited" -lt 10 ]; do
+    while [ "$waited" -lt 60 ]; do
         if ! kill -0 "$pid" 2>/dev/null; then
             # Clean up state files.
             save_state 0 false
@@ -1001,13 +1012,10 @@ op_stop_impl() {
         waited=$((waited + 1))
     done
 
-    # Force kill if still running.
-    kill -9 "$pid" 2>/dev/null || true
-    sleep 1
-
-    # Clean up state files.
-    save_state 0 false
-    rm -f "$PID_FILE"
+    # Still running after 30s — log and return error rather than SIGKILL.
+    # SIGKILL at this point would corrupt the journal anyway.
+    echo "dolt server (PID $pid) did not stop within 30s — leaving running to avoid journal corruption" >&2
+    return 1
 }
 
 # op_stop stops the dolt server.
