@@ -135,6 +135,7 @@ AgentOverride modifies a pack-stamped agent for a specific rig.
 | `provider_strategy` | string |  |  | ProviderStrategyName overrides the provider selection strategy. |
 | `start_command` | string |  |  | StartCommand overrides the start command. |
 | `nudge` | string |  |  | Nudge overrides the nudge text. |
+| `work_query` | string |  |  | WorkQuery overrides the agent's work_query command. |
 | `idle_timeout` | string |  |  | IdleTimeout overrides the idle timeout duration string (e.g., "30s", "5m", "1h"). |
 | `stuck_timeout` | string |  |  | StuckTimeout overrides the stuck timeout duration string (e.g., "30m", "2h"). |
 | `sleep_after_idle` | string |  |  | SleepAfterIdle overrides idle sleep policy for this agent. Accepts a duration string (e.g., "30s") or "off". |
@@ -192,6 +193,7 @@ AgentPatch modifies an existing agent identified by (Dir, Name).
 | `attach` | boolean |  |  | Attach overrides the agent's attach setting. |
 | `depends_on` | []string |  |  | DependsOn overrides the agent's dependency list. |
 | `resume_command` | string |  |  | ResumeCommand overrides the agent's resume_command template. |
+| `work_query` | string |  |  | WorkQuery overrides the agent's work_query command. |
 | `wake_mode` | string |  |  | WakeMode overrides the agent's wake mode ("resume" or "fresh"). Enum: `resume`, `fresh` |
 | `pre_start_append` | []string |  |  | PreStartAppend appends commands to the agent's pre_start list (instead of replacing). Applied after PreStart if both are set. |
 | `session_setup_append` | []string |  |  | SessionSetupAppend appends commands to the agent's session_setup list. |
@@ -214,6 +216,7 @@ BudgetConfig holds token budget circuit breaker settings.
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `max_input_tokens` | integer |  |  | MaxInputTokens is the rolling-window input token limit. 0 means disabled. Input tokens include cache reads and cache writes. |
+| `max_output_tokens` | integer |  |  | MaxOutputTokens is the rolling-window output token limit. 0 means disabled. Claude rate limits are on output tokens (not input), so this is the primary circuit breaker for the Max 20x plan. |
 | `window` | string |  | `1h` | Window is the rolling time window for token summation. Duration string (e.g., "1h", "24h"). Defaults to "1h". |
 
 ## ChatSessionsConfig
